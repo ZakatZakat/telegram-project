@@ -42,9 +42,9 @@ async def ingest_channels(
             db_channel: Channel = await upsert_channel(
                 session,
                 tg_id=entity.id,
-                username=getattr(entity, \"username\", None),
-                title=getattr(entity, \"title\", None),
-                is_private=bool(getattr(entity, \"broadcast\", False) is False),
+                username=getattr(entity, "username", None),
+                title=getattr(entity, "title", None),
+                is_private=bool(getattr(entity, "broadcast", False) is False),
             )
             await session.commit()
 
@@ -69,10 +69,10 @@ async def ingest_channels(
             await session.execute(
                 update(Channel)
                 .where(Channel.id == db_channel.id)
-                .values(last_message_id=getattr(entity, \"max_read_msg_id\", None))
+                .values(last_message_id=getattr(entity, "max_read_msg_id", None))
             )
             await session.commit()
-            results[key] = f\"ok:{processed}\"
+            results[key] = f"ok:{processed}"
     finally:
         await client.disconnect()
 

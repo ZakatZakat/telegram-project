@@ -1,0 +1,79 @@
+:root {
+  color-scheme: light dark;
+  --bg: #0f0f10;
+  --fg: #f0f0f0;
+  --muted: #9aa0a6;
+  --card: #1a1b1e;
+  --border: #2a2b2e;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #ffffff;
+    --fg: #1b1b1b;
+    --muted: #575a5e;
+    --card: #f6f7f9;
+    --border: #e4e7eb;
+  }
+}
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, 'Helvetica Neue', Arial, sans-serif;
+}
+#app {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 12px;
+}
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+header h1 {
+  margin: 0;
+  font-size: 18px;
+}
+header input {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--fg);
+  border-radius: 8px;
+  width: 220px;
+}
+header button {
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--fg);
+  cursor: pointer;
+}
+main .card {
+  border: 1px solid var(--border);
+  background: var(--card);
+  padding: 12px;
+  border-radius: 12px;
+  margin-bottom: 10px;
+}
+.card .meta {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  margin-bottom: 8px;
+  color: var(--muted);
+}
+.card .meta .ch {
+  font-weight: 600;
+  color: var(--fg);
+}
+.card .text {
+  white-space: normal;
+}
+
+

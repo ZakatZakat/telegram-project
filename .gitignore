@@ -32,3 +32,4 @@ config/.env
 sessions/
 
 
+miniapp/

@@ -8,8 +8,11 @@ services:
       - .env
     volumes:
       - ./sessions:/app/sessions
+      - ./src:/app/src
+      - ./alembic:/app/alembic
+      - ./alembic.ini:/app/alembic.ini
     ports:
-      - "8000:8000"
+      - "8010:8000"
     depends_on:
       - db
       - redis

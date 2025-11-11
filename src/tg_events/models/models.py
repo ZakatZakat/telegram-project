@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import BigInteger, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, DateTime, ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -32,7 +32,7 @@ class MessageRaw(TimestampMixin, Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     channel_id: Mapped[int] = mapped_column(ForeignKey("channels.id", ondelete="CASCADE"))
     msg_id: Mapped[int] = mapped_column(BigInteger)
-    date: Mapped[datetime] = mapped_column()
+    date: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     text: Mapped[Optional[str]] = mapped_column(Text)
     attachments: Mapped[Optional[dict]] = mapped_column(JSONB)
     features: Mapped[Optional[dict]] = mapped_column(JSONB)
@@ -48,8 +48,8 @@ class Event(TimestampMixin, Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     title: Mapped[str] = mapped_column(Text)
     description: Mapped[Optional[str]] = mapped_column(Text)
-    starts_at: Mapped[datetime] = mapped_column(index=True)
-    ends_at: Mapped[Optional[datetime]] = mapped_column(index=True)
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    ends_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), index=True)
     timezone: Mapped[Optional[str]] = mapped_column(String(64))
 
     location_text: Mapped[Optional[str]] = mapped_column(Text)

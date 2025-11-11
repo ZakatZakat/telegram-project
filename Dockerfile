@@ -9,6 +9,8 @@ WORKDIR /app
 RUN adduser --disabled-password --gecos '' appuser
 
 COPY pyproject.toml /app/pyproject.toml
+COPY alembic.ini /app/alembic.ini
+COPY alembic /app/alembic
 COPY src /app/src
 COPY README.md /app/README.md
 
