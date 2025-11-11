@@ -1,0 +1,40 @@
+[tool.poetry]
+name = "tg-events"
+version = "0.1.0"
+description = "Telegram channels monitoring and events extraction service"
+authors = ["You <you@example.com>"]
+readme = "README.md"
+packages = [{ include = "tg_events", from = "src" }]
+
+[tool.poetry.dependencies]
+python = ">=3.11,<3.13"
+fastapi = "^0.115.0"
+uvicorn = { extras = ["standard"], version = "^0.31.0" }
+pydantic = "^2.9.0"
+pydantic-settings = "^2.4.0"
+structlog = "^24.1.0"
+orjson = "^3.10.7"
+python-dotenv = "^1.0.1"
+SQLAlchemy = "^2.0.35"
+asyncpg = "^0.29.0"
+alembic = "^1.13.3"
+
+[tool.poetry.group.dev.dependencies]
+ruff = "^0.6.9"
+mypy = "^1.11.2"
+types-python-dotenv = "^1.0.0.20240524"
+
+[build-system]
+requires = ["poetry-core>=1.9.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.mypy]
+python_version = "3.11"
+warn_unused_configs = true
+ignore_missing_imports = true
+
+
