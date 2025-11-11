@@ -6,6 +6,8 @@ services:
     container_name: tg-events-api
     env_file:
       - .env
+    volumes:
+      - ./sessions:/app/sessions
     ports:
       - "8000:8000"
     depends_on:

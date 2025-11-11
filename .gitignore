@@ -29,5 +29,6 @@ config/.env
 
 # Docker
 **/.DS_Store
+sessions/
 
 

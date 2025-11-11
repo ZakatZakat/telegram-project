@@ -1,0 +1,81 @@
+from __future__ import annotations
+
+from typing import Iterable, Optional
+
+from sqlalchemy import update
+from sqlalchemy.ext.asyncio import AsyncSession
+from telethon.errors import ChannelInvalidError, UsernameInvalidError
+from telethon.tl.types import Channel as TlChannel, ChannelForbidden, InputPeerChannel
+
+from tg_events.ingest.telethon_client import build_client
+from tg_events.models import Channel
+from tg_events.repositories.channels import upsert_channel
+from tg_events.repositories.messages import create_message, get_message
+
+
+async def ingest_channels(
+    session: AsyncSession, channels: Iterable[str], *, limit: int = 1000
+) -> dict[str, str]:
+    """Fetch recent history for provided channels/usernames and store messages."""
+    client = build_client()
+    await client.connect()
+    if not await client.is_user_authorized():
+        await client.disconnect()
+        raise RuntimeError("Telegram session not authorized. Run tg_events.scripts.tg_auth first.")
+
+    results: dict[str, str] = {}
+    try:
+        for ch in channels:
+            key = ch
+            try:
+                entity = await client.get_entity(ch)
+            except (UsernameInvalidError, ChannelInvalidError):
+                results[key] = "not_found"
+                continue
+            if isinstance(entity, ChannelForbidden):
+                results[key] = "forbidden"
+                continue
+            if not isinstance(entity, TlChannel):
+                results[key] = "not_a_channel"
+                continue
+
+            db_channel: Channel = await upsert_channel(
+                session,
+                tg_id=entity.id,
+                username=getattr(entity, \"username\", None),
+                title=getattr(entity, \"title\", None),
+                is_private=bool(getattr(entity, \"broadcast\", False) is False),
+            )
+            await session.commit()
+
+            processed = 0
+            async for msg in client.iter_messages(entity, limit=limit, reverse=True):
+                if msg.id is None or msg.date is None:
+                    continue
+                exists = await get_message(session, channel_id=db_channel.id, msg_id=msg.id)
+                if exists is not None:
+                    continue
+                await create_message(
+                    session,
+                    channel_id=db_channel.id,
+                    msg_id=msg.id,
+                    date=msg.date,
+                    text=msg.message or None,
+                )
+                processed += 1
+                if processed % 200 == 0:
+                    await session.commit()
+
+            await session.execute(
+                update(Channel)
+                .where(Channel.id == db_channel.id)
+                .values(last_message_id=getattr(entity, \"max_read_msg_id\", None))
+            )
+            await session.commit()
+            results[key] = f\"ok:{processed}\"
+    finally:
+        await client.disconnect()
+
+    return results
+
+
