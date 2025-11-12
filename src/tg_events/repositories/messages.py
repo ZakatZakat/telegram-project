@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Dict, Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,6 +27,7 @@ async def create_message(
     date: datetime,
     text: Optional[str],
     attachments: Optional[dict] = None,
+    features: Optional[Dict[str, Any]] = None,
 ) -> MessageRaw:
     msg = MessageRaw(
         channel_id=channel_id,
@@ -34,7 +35,7 @@ async def create_message(
         date=date,
         text=text,
         attachments=attachments,
-        features=None,
+        features=features,
         hash=None,
     )
     session.add(msg)

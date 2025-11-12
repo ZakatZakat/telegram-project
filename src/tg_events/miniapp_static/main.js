@@ -40,12 +40,21 @@
       card.className = "card";
       const title = it.channel_title || it.channel_username || "Channel";
       const link = it.source_url ? `<a href="${it.source_url}" target="_blank">Open</a>` : "";
+      const fwdSource = (() => {
+        if (!it.forward) return "";
+        const u = it.forward.from_username ? `@${it.forward.from_username}` : "";
+        const title = it.forward.from_name || it.forward.from_title || "";
+        return u || title || (it.forward.from_type || "");
+      })();
+      const fwdHtml = fwdSource ? 
+        `<div class="fwd">Forwarded from ${escapeHtml(fwdSource)}</div>` : "";
       const textHtml = `
         <div class="meta">
           <span class="ch">${title}</span>
           <span class="dt">${new Date(it.date).toLocaleString()}</span>
           ${link}
         </div>
+        ${fwdHtml}
         <div class="text">${escapeHtml((it.text || "").slice(0, 800)).replace(/\\n/g, "<br/>")}</div>`;
       card.innerHTML = textHtml;
       if (Array.isArray(it.media_urls) && it.media_urls.length) {

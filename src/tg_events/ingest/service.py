@@ -6,6 +6,7 @@ from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 from telethon.errors import ChannelInvalidError, UsernameInvalidError
 from telethon.tl.types import Channel as TlChannel, ChannelForbidden, PeerChannel, PeerUser, User as TlUser
+from telethon.utils import get_display_name
 
 from pathlib import Path
 from tg_events.ingest.telethon_client import build_client
@@ -32,6 +33,7 @@ async def ingest_channels(
 
     results: dict[str, str] = {}
     try:
+        forward_cache: dict[tuple[str, int], dict[str, str | int | None]] = {}
         for ch in channels:
             key = ch
             try:
@@ -76,6 +78,7 @@ async def ingest_channels(
                     continue
                 exists = await get_message(session, channel_id=db_channel.id, msg_id=msg.id)
                 attachments: dict | None = None
+                features: dict | None = None
                 saved_paths: list[str] = []
                 # download photos or image-documents
                 is_image = False
@@ -95,17 +98,88 @@ async def ingest_channels(
                         saved_paths.append(rel)
                 if saved_paths:
                     attachments = {"media": saved_paths}
-                if exists is not None:
-                    if update_existing_media and attachments and not exists.attachments:
-                        await session.execute(
-                            update(MessageRaw)
-                            .where(MessageRaw.id == exists.id)
-                            .values(attachments=attachments)
+                # forward metadata
+                fwd = getattr(msg, "fwd_from", None)
+                if fwd is not None:
+                    f_from_name = getattr(fwd, "from_name", None)
+                    f_from = getattr(fwd, "from_id", None)
+                    f_username: str | None = None
+                    f_title: str | None = None
+                    f_type: str | None = None
+                    f_peer_id: int | None = None
+                    if f_from is not None:
+                        # PeerChannel / PeerUser
+                        f_peer_id = getattr(f_from, "channel_id", None) or getattr(
+                            f_from, "user_id", None
                         )
-                        processed += 1
-                    else:
-                        # skip already stored message
-                        pass
+                        if getattr(f_from, "channel_id", None) is not None:
+                            f_type = "channel"
+                        elif getattr(f_from, "user_id", None) is not None:
+                            f_type = "user"
+                        # try resolve human-readable title/username via cache
+                        if f_type and f_peer_id:
+                            cache_key = (f_type, int(f_peer_id))
+                            info = forward_cache.get(cache_key)
+                            if info is None:
+                                try:
+                                    entity = (
+                                        await client.get_entity(PeerChannel(int(f_peer_id)))
+                                        if f_type == "channel"
+                                        else await client.get_entity(PeerUser(int(f_peer_id)))
+                                    )
+                                    info = {
+                                        "title": get_display_name(entity) or None,
+                                        "username": getattr(entity, "username", None),
+                                    }
+                                except Exception:
+                                    info = {"title": None, "username": None}
+                                forward_cache[cache_key] = info
+                            f_title = info.get("title") if info else None
+                            f_username = info.get("username") if info else None
+                    # Telethon не всегда даёт username в fwd header; оставим только name/id/type
+                    features = {
+                        "forward": {
+                            "from_name": f_from_name,
+                            "from_title": f_title,
+                            "from_username": f_username,
+                            "from_type": f_type,
+                            "from_peer_id": f_peer_id,
+                        }
+                    }
+                if exists is not None:
+                    if update_existing_media:
+                        update_values: dict[str, object] = {}
+                        if attachments and not exists.attachments:
+                            update_values["attachments"] = attachments
+                        if features:
+                            # update forward info if absent or can be enriched with title/username
+                            existing_features = exists.features or {}
+                            ef = existing_features.get("forward") if isinstance(existing_features, dict) else None
+                            nf = features.get("forward")
+                            should_update_forward = False
+                            if not ef:
+                                should_update_forward = True
+                            else:
+                                # enrich when missing title/username
+                                missing_title = not bool(ef.get("from_title"))
+                                missing_username = not bool(ef.get("from_username"))
+                                have_new_title = bool(nf and nf.get("from_title"))
+                                have_new_username = bool(nf and nf.get("from_username"))
+                                if (missing_title and have_new_title) or (missing_username and have_new_username):
+                                    should_update_forward = True
+                                    # merge existing with new
+                                    merged = dict(ef)
+                                    merged.update({k: v for k, v in (nf or {}).items() if v is not None})
+                                    features = dict(existing_features)
+                                    features["forward"] = merged
+                            if should_update_forward:
+                                update_values["features"] = features
+                        if update_values:
+                            await session.execute(
+                                update(MessageRaw).where(MessageRaw.id == exists.id).values(**update_values)
+                            )
+                            processed += 1
+                    # else skip already stored message
                 else:
                     await create_message(
                         session,
@@ -114,6 +188,7 @@ async def ingest_channels(
                         date=msg.date,
                         text=msg.message or None,
                         attachments=attachments,
+                        features=features,
                     )
                     processed += 1
                 if processed % 200 == 0:

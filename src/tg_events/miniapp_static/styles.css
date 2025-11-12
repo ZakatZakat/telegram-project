@@ -72,6 +72,11 @@ main .card {
   font-weight: 600;
   color: var(--fg);
 }
+.card .fwd {
+  margin: 4px 0 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
 .card .text {
   white-space: normal;
 }

@@ -34,6 +34,7 @@ async def list_recent_messages(
             MessageRaw.date,
             MessageRaw.text,
             MessageRaw.attachments,
+            MessageRaw.features,
             Channel.title,
             Channel.username,
         )
@@ -47,7 +48,7 @@ async def list_recent_messages(
         stmt = stmt.where(Channel.tg_id == channel_tg_id)
     rows = (await session.execute(stmt)).all()
     items: List[MiniappPost] = []
-    for rid, msg_id, date, text, attachments, title, username in rows:
+    for rid, msg_id, date, text, attachments, features, title, username in rows:
         source_url: Optional[str] = None
         if username:
             source_url = f"https://t.me/{username}/{msg_id}"
@@ -65,6 +66,14 @@ async def list_recent_messages(
             "channel_username": username,
             "source_url": source_url,
         }
+        if features and isinstance(features, dict):
+            fwd = features.get("forward")
+            if isinstance(fwd, dict):
+                item["forward"] = {
+                    "from_name": fwd.get("from_name"),
+                    "from_type": fwd.get("from_type"),
+                    "from_peer_id": fwd.get("from_peer_id"),
+                }
         if media_urls:
             item["media_urls"] = media_urls
         items.append(item)
