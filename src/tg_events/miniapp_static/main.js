@@ -28,14 +28,27 @@
       card.className = "card";
       const title = it.channel_title || it.channel_username || "Channel";
       const link = it.source_url ? `<a href="${it.source_url}" target="_blank">Open</a>` : "";
-      card.innerHTML = `
+      const textHtml = `
         <div class="meta">
           <span class="ch">${title}</span>
           <span class="dt">${new Date(it.date).toLocaleString()}</span>
           ${link}
         </div>
-        <div class="text">${escapeHtml((it.text || "").slice(0, 800)).replace(/\\n/g, "<br/>")}</div>
-      `;
+        <div class="text">${escapeHtml((it.text || "").slice(0, 800)).replace(/\\n/g, "<br/>")}</div>`;
+      card.innerHTML = textHtml;
+      if (Array.isArray(it.media_urls) && it.media_urls.length) {
+        const gallery = document.createElement("div");
+        gallery.className = "gallery";
+        for (const url of it.media_urls.slice(0, 4)) {
+          const img = document.createElement("img");
+          img.src = url;
+          img.alt = "photo";
+          img.loading = "lazy";
+          img.className = "ph";
+          gallery.appendChild(img);
+        }
+        card.appendChild(gallery);
+      }
       listEl.appendChild(card);
     }
   }

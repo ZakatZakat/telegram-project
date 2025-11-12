@@ -26,11 +26,17 @@ class IngestRequest(BaseModel):
 
     channels: List[str]
     limit: Optional[int] = 1000
+    force_media: Optional[bool] = False
 
 
 @app.post("/ingest")
 async def ingest(req: IngestRequest, session: AsyncSession = Depends(get_session)) -> dict[str, str]:
-    return await ingest_channels(session, req.channels, limit=req.limit or 1000)
+    return await ingest_channels(
+        session,
+        req.channels,
+        limit=req.limit or 1000,
+        update_existing_media=bool(req.force_media),
+    )
 
 
 class MiniappPostsResponse(BaseModel):
@@ -51,5 +57,10 @@ async def miniapp_posts(
 miniapp_dir = Path(__file__).parent / "miniapp_static"
 if miniapp_dir.exists():
     app.mount("/miniapp", StaticFiles(directory=str(miniapp_dir), html=True), name="miniapp")
+
+# Serve media files
+media_dir = Path(settings.media_root)
+media_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/media", StaticFiles(directory=str(media_dir), html=False), name="media")
 
 

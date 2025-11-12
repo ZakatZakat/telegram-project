@@ -26,13 +26,14 @@ async def create_message(
     msg_id: int,
     date: datetime,
     text: Optional[str],
+    attachments: Optional[dict] = None,
 ) -> MessageRaw:
     msg = MessageRaw(
         channel_id=channel_id,
         msg_id=msg_id,
         date=date,
         text=text,
-        attachments=None,
+        attachments=attachments,
         features=None,
         hash=None,
     )

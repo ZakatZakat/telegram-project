@@ -9,6 +9,7 @@ services:
     volumes:
       - ./sessions:/app/sessions
       - ./src:/app/src
+      - ./media:/app/media
       - ./alembic:/app/alembic
       - ./alembic.ini:/app/alembic.ini
     ports:
