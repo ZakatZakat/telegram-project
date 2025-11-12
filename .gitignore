@@ -31,5 +31,11 @@ config/.env
 **/.DS_Store
 sessions/
 
+# Images
+*.jpg
+*.png
+*.webp
+*.mp4
+
 
 miniapp/

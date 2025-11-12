@@ -5,7 +5,7 @@ from typing import Iterable, Optional
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 from telethon.errors import ChannelInvalidError, UsernameInvalidError
-from telethon.tl.types import Channel as TlChannel, ChannelForbidden, PeerChannel
+from telethon.tl.types import Channel as TlChannel, ChannelForbidden, PeerChannel, PeerUser, User as TlUser
 
 from pathlib import Path
 from tg_events.ingest.telethon_client import build_client
@@ -37,16 +37,24 @@ async def ingest_channels(
             try:
                 target = ch
                 if isinstance(ch, str) and ch.isdigit():
-                    target = PeerChannel(int(ch))
-                entity = await client.get_entity(target)
+                    # first try as channel id, then as user id
+                    try:
+                        target = PeerChannel(int(ch))
+                        entity = await client.get_entity(target)
+                    except Exception:
+                        target = PeerUser(int(ch))
+                        entity = await client.get_entity(target)
+                else:
+                    entity = await client.get_entity(target)
             except (UsernameInvalidError, ChannelInvalidError):
                 results[key] = "not_found"
                 continue
             if isinstance(entity, ChannelForbidden):
                 results[key] = "forbidden"
                 continue
-            if not isinstance(entity, TlChannel):
-                results[key] = "not_a_channel"
+            # accept channels and users (private chats)
+            if not isinstance(entity, (TlChannel, TlUser)):
+                results[key] = "unsupported_peer"
                 continue
 
             db_channel: Channel = await upsert_channel(
@@ -62,7 +70,8 @@ async def ingest_channels(
             s = get_settings()
             media_root = Path(s.media_root)
             media_root.mkdir(parents=True, exist_ok=True)
-            async for msg in client.iter_messages(entity, limit=limit, reverse=True):
+            # fetch newest first
+            async for msg in client.iter_messages(entity, limit=limit):
                 if msg.id is None or msg.date is None:
                     continue
                 exists = await get_message(session, channel_id=db_channel.id, msg_id=msg.id)
@@ -110,11 +119,13 @@ async def ingest_channels(
                 if processed % 200 == 0:
                     await session.commit()
 
-            await session.execute(
-                update(Channel)
-                .where(Channel.id == db_channel.id)
-                .values(last_message_id=getattr(entity, "max_read_msg_id", None))
-            )
+            # update last_message_id only for channels that expose it
+            if isinstance(entity, TlChannel):
+                await session.execute(
+                    update(Channel)
+                    .where(Channel.id == db_channel.id)
+                    .values(last_message_id=getattr(entity, "max_read_msg_id", None))
+                )
             await session.commit()
             results[key] = f"ok:{processed}"
     finally:

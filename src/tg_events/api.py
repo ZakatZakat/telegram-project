@@ -12,7 +12,7 @@ from tg_events.ingest.service import ingest_channels
 from tg_events.repositories.miniapp_queries import list_recent_messages
 from tg_events.ingest.telethon_client import build_client
 from telethon.utils import get_display_name
-from telethon.tl.types import Channel as TlChannel
+from telethon.tl.types import Channel as TlChannel, User as TlUser
 
 
 settings = get_settings()
@@ -90,6 +90,15 @@ async def miniapp_channels(limit: int = 300) -> ChannelsResponse:
                     ChannelItem(
                         id=int(getattr(e, "id", 0)),
                         kind=kind,
+                        name=get_display_name(e) or "",
+                        username=getattr(e, "username", None),
+                    )
+                )
+            elif isinstance(e, TlUser):
+                items.append(
+                    ChannelItem(
+                        id=int(getattr(e, "id", 0)),
+                        kind="user",
                         name=get_display_name(e) or "",
                         username=getattr(e, "username", None),
                     )

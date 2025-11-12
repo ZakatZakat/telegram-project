@@ -10,6 +10,7 @@
   const reloadBtn = document.getElementById("reloadBtn");
   const channelSelect = document.getElementById("channelSelect");
   const ingestBtn = document.getElementById("ingestBtn");
+  const refreshChannelsBtn = document.getElementById("refreshChannelsBtn");
 
   async function load() {
     listEl.innerHTML = "Loading...";
@@ -66,6 +67,7 @@
 
   async function loadChannels() {
     try {
+      const prev = channelSelect.value;
       const res = await fetch(`/miniapp/api/channels`);
       const data = await res.json();
       const items = data.items || [];
@@ -77,6 +79,11 @@
         opt.value = value;
         opt.textContent = label;
         channelSelect.appendChild(opt);
+      }
+      // restore previous selection if still available
+      if (prev) {
+        const found = Array.from(channelSelect.options).some((o) => o.value === prev);
+        if (found) channelSelect.value = prev;
       }
     } catch (e) {
       console.error(e);
@@ -121,6 +128,17 @@
     } finally {
       ingestBtn.disabled = false;
       ingestBtn.textContent = "Ingest selected";
+    }
+  });
+  refreshChannelsBtn.addEventListener("click", async () => {
+    refreshChannelsBtn.disabled = true;
+    const oldText = refreshChannelsBtn.textContent;
+    refreshChannelsBtn.textContent = "Refreshing…";
+    try {
+      await loadChannels();
+    } finally {
+      refreshChannelsBtn.disabled = false;
+      refreshChannelsBtn.textContent = oldText;
     }
   });
   loadChannels().then(load);
