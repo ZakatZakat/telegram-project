@@ -24,6 +24,7 @@ async def list_recent_messages(
     *,
     limit: int = 100,
     channel_username: Optional[str] = None,
+    channel_tg_id: Optional[int] = None,
 ) -> List[MiniappPost]:
     settings = get_settings()
     stmt: Select[Any] = (
@@ -42,6 +43,8 @@ async def list_recent_messages(
     )
     if channel_username:
         stmt = stmt.where(Channel.username == channel_username)
+    if channel_tg_id is not None:
+        stmt = stmt.where(Channel.tg_id == channel_tg_id)
     rows = (await session.execute(stmt)).all()
     items: List[MiniappPost] = []
     for rid, msg_id, date, text, attachments, title, username in rows:

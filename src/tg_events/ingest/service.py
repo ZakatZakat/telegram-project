@@ -5,7 +5,7 @@ from typing import Iterable, Optional
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 from telethon.errors import ChannelInvalidError, UsernameInvalidError
-from telethon.tl.types import Channel as TlChannel, ChannelForbidden, InputPeerChannel
+from telethon.tl.types import Channel as TlChannel, ChannelForbidden, PeerChannel
 
 from pathlib import Path
 from tg_events.ingest.telethon_client import build_client
@@ -35,7 +35,10 @@ async def ingest_channels(
         for ch in channels:
             key = ch
             try:
-                entity = await client.get_entity(ch)
+                target = ch
+                if isinstance(ch, str) and ch.isdigit():
+                    target = PeerChannel(int(ch))
+                entity = await client.get_entity(target)
             except (UsernameInvalidError, ChannelInvalidError):
                 results[key] = "not_found"
                 continue

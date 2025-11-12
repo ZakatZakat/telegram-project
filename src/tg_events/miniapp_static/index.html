@@ -12,8 +12,12 @@
       <header>
         <h1>Latest Posts</h1>
         <div>
+          <select id="channelSelect">
+            <option value="">All channels</option>
+          </select>
           <input id="userFilter" placeholder="@username (optional)" />
           <button id="reloadBtn">Reload</button>
+          <button id="ingestBtn">Ingest selected</button>
         </div>
       </header>
       <main id="list"></main>
