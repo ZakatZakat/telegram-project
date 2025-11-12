@@ -93,5 +93,12 @@ main .card {
   border: 1px solid var(--border);
   object-fit: cover;
 }
+.gallery .vd {
+  width: 100%;
+  height: auto;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #000;
+}
 
 

@@ -53,10 +53,26 @@ async def list_recent_messages(
         if username:
             source_url = f"https://t.me/{username}/{msg_id}"
         media_urls: Optional[list[str]] = None
+        media_items_fmt: Optional[list[dict]] = None
         if attachments and isinstance(attachments, dict):
             media = attachments.get("media")
             if isinstance(media, list):
-                media_urls = [f"/media/{m}" for m in media]
+                # backward compatibility: list[str]
+                if media and isinstance(media[0], str):
+                    media_urls = [f"/media/{m}" for m in media]
+                else:
+                    # list[dict] with path/kind/mime
+                    media_items_fmt = []
+                    for it in media:
+                        if not isinstance(it, dict):
+                            continue
+                        path = it.get("path")
+                        if not path:
+                            continue
+                        url = f"/media/{path}"
+                        kind = it.get("kind") or "photo"
+                        mime = it.get("mime")
+                        media_items_fmt.append({"url": url, "kind": kind, "mime": mime})
         item: MiniappPost = {
             "id": int(rid),
             "msg_id": int(msg_id),
@@ -71,11 +87,15 @@ async def list_recent_messages(
             if isinstance(fwd, dict):
                 item["forward"] = {
                     "from_name": fwd.get("from_name"),
+                    "from_title": fwd.get("from_title"),
+                    "from_username": fwd.get("from_username"),
                     "from_type": fwd.get("from_type"),
                     "from_peer_id": fwd.get("from_peer_id"),
                 }
         if media_urls:
             item["media_urls"] = media_urls
+        if media_items_fmt:
+            item["media"] = media_items_fmt
         items.append(item)
     return items
 

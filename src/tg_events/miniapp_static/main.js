@@ -57,7 +57,37 @@
         ${fwdHtml}
         <div class="text">${escapeHtml((it.text || "").slice(0, 800)).replace(/\\n/g, "<br/>")}</div>`;
       card.innerHTML = textHtml;
-      if (Array.isArray(it.media_urls) && it.media_urls.length) {
+      if (Array.isArray(it.media) && it.media.length) {
+        const gallery = document.createElement("div");
+        gallery.className = "gallery";
+        for (const m of it.media.slice(0, 4)) {
+          if (m.kind === "video") {
+            const v = document.createElement("video");
+            v.src = m.url;
+            v.controls = true;
+            v.className = "vd";
+            v.preload = "metadata";
+            gallery.appendChild(v);
+          } else if (m.kind === "gif") {
+            const v = document.createElement("video");
+            v.src = m.url;
+            v.autoplay = true;
+            v.loop = true;
+            v.muted = true;
+            v.playsInline = true;
+            v.className = "vd";
+            gallery.appendChild(v);
+          } else {
+            const img = document.createElement("img");
+            img.src = m.url;
+            img.alt = "photo";
+            img.loading = "lazy";
+            img.className = "ph";
+            gallery.appendChild(img);
+          }
+        }
+        card.appendChild(gallery);
+      } else if (Array.isArray(it.media_urls) && it.media_urls.length) {
         const gallery = document.createElement("div");
         gallery.className = "gallery";
         for (const url of it.media_urls.slice(0, 4)) {
@@ -139,17 +169,22 @@
       ingestBtn.textContent = "Ingest selected";
     }
   });
-  refreshChannelsBtn.addEventListener("click", async () => {
-    refreshChannelsBtn.disabled = true;
-    const oldText = refreshChannelsBtn.textContent;
-    refreshChannelsBtn.textContent = "Refreshing…";
-    try {
-      await loadChannels();
-    } finally {
-      refreshChannelsBtn.disabled = false;
-      refreshChannelsBtn.textContent = oldText;
-    }
-  });
+  if (refreshChannelsBtn) {
+    refreshChannelsBtn.addEventListener("click", async () => {
+      refreshChannelsBtn.disabled = true;
+      const oldText = refreshChannelsBtn.textContent;
+      refreshChannelsBtn.textContent = "Refreshing…";
+      try {
+        await loadChannels();
+        await load(); // reload posts for newly selected/available channel
+      } catch (e) {
+        console.error(e);
+      } finally {
+        refreshChannelsBtn.disabled = false;
+        refreshChannelsBtn.textContent = oldText;
+      }
+    });
+  }
   loadChannels().then(load);
 })();
 

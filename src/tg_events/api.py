@@ -10,7 +10,7 @@ from tg_events.db import get_session
 from tg_events.config import get_settings
 from tg_events.ingest.service import ingest_channels
 from tg_events.repositories.miniapp_queries import list_recent_messages
-from tg_events.ingest.telethon_client import build_client
+from tg_events.ingest.telethon_client import build_client, open_client
 from telethon.utils import get_display_name
 from telethon.tl.types import Channel as TlChannel, User as TlUser
 
@@ -78,33 +78,32 @@ class ChannelsResponse(BaseModel):
 
 @app.get("/miniapp/api/channels", response_model=ChannelsResponse)
 async def miniapp_channels(limit: int = 300) -> ChannelsResponse:
-    client = build_client()
-    await client.connect()
     items: list[ChannelItem] = []
-    try:
-        async for d in client.iter_dialogs(limit=limit):
-            e = d.entity
-            if isinstance(e, TlChannel):
-                kind = "channel" if getattr(e, "broadcast", False) else "supergroup"
-                items.append(
-                    ChannelItem(
-                        id=int(getattr(e, "id", 0)),
-                        kind=kind,
-                        name=get_display_name(e) or "",
-                        username=getattr(e, "username", None),
+    async with open_client() as client:
+        try:
+            async for d in client.iter_dialogs(limit=limit):
+                e = d.entity
+                if isinstance(e, TlChannel):
+                    kind = "channel" if getattr(e, "broadcast", False) else "supergroup"
+                    items.append(
+                        ChannelItem(
+                            id=int(getattr(e, "id", 0)),
+                            kind=kind,
+                            name=get_display_name(e) or "",
+                            username=getattr(e, "username", None),
+                        )
                     )
-                )
-            elif isinstance(e, TlUser):
-                items.append(
-                    ChannelItem(
-                        id=int(getattr(e, "id", 0)),
-                        kind="user",
-                        name=get_display_name(e) or "",
-                        username=getattr(e, "username", None),
+                elif isinstance(e, TlUser):
+                    items.append(
+                        ChannelItem(
+                            id=int(getattr(e, "id", 0)),
+                            kind="user",
+                            name=get_display_name(e) or "",
+                            username=getattr(e, "username", None),
+                        )
                     )
-                )
-    finally:
-        await client.disconnect()
+        finally:
+            pass
     # sort by name
     items.sort(key=lambda x: (x.username is None, (x.username or x.name or "").lower()))
     return ChannelsResponse(items=items)

@@ -5,11 +5,18 @@ from typing import Iterable, Optional
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 from telethon.errors import ChannelInvalidError, UsernameInvalidError
-from telethon.tl.types import Channel as TlChannel, ChannelForbidden, PeerChannel, PeerUser, User as TlUser
+from telethon.tl.types import (
+    Channel as TlChannel,
+    ChannelForbidden,
+    PeerChannel,
+    PeerUser,
+    User as TlUser,
+    DocumentAttributeAnimated,
+)
 from telethon.utils import get_display_name
 
 from pathlib import Path
-from tg_events.ingest.telethon_client import build_client
+from tg_events.ingest.telethon_client import build_client, open_client
 from tg_events.config import get_settings
 from tg_events.models import MessageRaw
 from tg_events.models import Channel
@@ -25,14 +32,11 @@ async def ingest_channels(
     update_existing_media: bool = False,
 ) -> dict[str, str]:
     """Fetch recent history for provided channels/usernames and store messages."""
-    client = build_client()
-    await client.connect()
-    if not await client.is_user_authorized():
-        await client.disconnect()
-        raise RuntimeError("Telegram session not authorized. Run tg_events.scripts.tg_auth first.")
+    async with open_client() as client:
+        if not await client.is_user_authorized():
+            raise RuntimeError("Telegram session not authorized. Run tg_events.scripts.tg_auth first.")
 
-    results: dict[str, str] = {}
-    try:
+        results: dict[str, str] = {}
         forward_cache: dict[tuple[str, int], dict[str, str | int | None]] = {}
         for ch in channels:
             key = ch
@@ -79,25 +83,34 @@ async def ingest_channels(
                 exists = await get_message(session, channel_id=db_channel.id, msg_id=msg.id)
                 attachments: dict | None = None
                 features: dict | None = None
-                saved_paths: list[str] = []
-                # download photos or image-documents
-                is_image = False
+                media_items: list[dict] = []
+                # Images
                 if getattr(msg, "photo", None) is not None:
-                    is_image = True
-                else:
-                    doc = getattr(msg, "document", None)
-                    mime = getattr(doc, "mime_type", None) if doc is not None else None
-                    if isinstance(mime, str) and mime.startswith("image/"):
-                        is_image = True
-                if is_image:
                     base = f"{getattr(entity, 'username', getattr(entity, 'id', 'chan'))}_{msg.id}"
                     out = await client.download_media(msg, file=str(media_root / base))
                     if out:
-                        # store relative path under media root
-                        rel = Path(out).name
-                        saved_paths.append(rel)
-                if saved_paths:
-                    attachments = {"media": saved_paths}
+                        media_items.append({"path": Path(out).name, "kind": "photo", "mime": "image/jpeg"})
+                else:
+                    doc = getattr(msg, "document", None)
+                    mime = getattr(doc, "mime_type", None) if doc is not None else None
+                    if isinstance(mime, str):
+                        if mime.startswith("image/"):
+                            base = f"{getattr(entity, 'username', getattr(entity, 'id', 'chan'))}_{msg.id}"
+                            out = await client.download_media(msg, file=str(media_root / base))
+                            if out:
+                                media_items.append({"path": Path(out).name, "kind": "photo", "mime": mime})
+                        elif mime.startswith("video/"):
+                            # detect animated gif-as-video
+                            attrs = getattr(doc, "attributes", []) or []
+                            is_gif = any(isinstance(a, DocumentAttributeAnimated) for a in attrs)
+                            base = f"{getattr(entity, 'username', getattr(entity, 'id', 'chan'))}_{msg.id}"
+                            out = await client.download_media(msg, file=str(media_root / base))
+                            if out:
+                                media_items.append(
+                                    {"path": Path(out).name, "kind": "gif" if is_gif else "video", "mime": mime}
+                                )
+                if media_items:
+                    attachments = {"media": media_items}
                 # forward metadata
                 fwd = getattr(msg, "fwd_from", None)
                 if fwd is not None:
@@ -203,9 +216,8 @@ async def ingest_channels(
                 )
             await session.commit()
             results[key] = f"ok:{processed}"
-    finally:
-        await client.disconnect()
+        return results
 
-    return results
+    # unreachable
 
 
