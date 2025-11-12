@@ -76,6 +76,33 @@ async def ingest_channels(
             s = get_settings()
             media_root = Path(s.media_root)
             media_root.mkdir(parents=True, exist_ok=True)
+            # helper: find already downloaded media for this message prefix to avoid duplicates
+            def existing_media_items(prefix: str) -> list[dict]:
+                found: list[dict] = []
+                for p in sorted(media_root.glob(f"{prefix}*")):
+                    if not p.is_file():
+                        continue
+                    ext = p.suffix.lower()
+                    if ext in {".jpg", ".jpeg", ".png", ".webp", ".gif"}:
+                        kind = "photo" if ext != ".gif" else "gif"
+                        if ext in {".jpg", ".jpeg"}:
+                            mime = "image/jpeg"
+                        elif ext == ".png":
+                            mime = "image/png"
+                        elif ext == ".webp":
+                            mime = "image/webp"
+                        elif ext == ".gif":
+                            mime = "image/gif"
+                        else:
+                            mime = None
+                    elif ext in {".mp4", ".mov", ".webm"}:
+                        kind = "video"
+                        mime = "video/mp4" if ext == ".mp4" else ("video/webm" if ext == ".webm" else None)
+                    else:
+                        kind = "file"
+                        mime = None
+                    found.append({"path": p.name, "kind": kind, "mime": mime})
+                return found
             # fetch newest first
             async for msg in client.iter_messages(entity, limit=limit):
                 if msg.id is None or msg.date is None:
@@ -87,28 +114,40 @@ async def ingest_channels(
                 # Images
                 if getattr(msg, "photo", None) is not None:
                     base = f"{getattr(entity, 'username', getattr(entity, 'id', 'chan'))}_{msg.id}"
-                    out = await client.download_media(msg, file=str(media_root / base))
-                    if out:
-                        media_items.append({"path": Path(out).name, "kind": "photo", "mime": "image/jpeg"})
+                    already = existing_media_items(base)
+                    if already:
+                        media_items.extend(already)
+                    else:
+                        out = await client.download_media(msg, file=str(media_root / base))
+                        if out:
+                            media_items.append({"path": Path(out).name, "kind": "photo", "mime": "image/jpeg"})
                 else:
                     doc = getattr(msg, "document", None)
                     mime = getattr(doc, "mime_type", None) if doc is not None else None
                     if isinstance(mime, str):
                         if mime.startswith("image/"):
                             base = f"{getattr(entity, 'username', getattr(entity, 'id', 'chan'))}_{msg.id}"
-                            out = await client.download_media(msg, file=str(media_root / base))
-                            if out:
-                                media_items.append({"path": Path(out).name, "kind": "photo", "mime": mime})
+                            already = existing_media_items(base)
+                            if already:
+                                media_items.extend(already)
+                            else:
+                                out = await client.download_media(msg, file=str(media_root / base))
+                                if out:
+                                    media_items.append({"path": Path(out).name, "kind": "photo", "mime": mime})
                         elif mime.startswith("video/"):
                             # detect animated gif-as-video
                             attrs = getattr(doc, "attributes", []) or []
                             is_gif = any(isinstance(a, DocumentAttributeAnimated) for a in attrs)
                             base = f"{getattr(entity, 'username', getattr(entity, 'id', 'chan'))}_{msg.id}"
-                            out = await client.download_media(msg, file=str(media_root / base))
-                            if out:
-                                media_items.append(
-                                    {"path": Path(out).name, "kind": "gif" if is_gif else "video", "mime": mime}
-                                )
+                            already = existing_media_items(base)
+                            if already:
+                                media_items.extend(already)
+                            else:
+                                out = await client.download_media(msg, file=str(media_root / base))
+                                if out:
+                                    media_items.append(
+                                        {"path": Path(out).name, "kind": "gif" if is_gif else "video", "mime": mime}
+                                    )
                 if media_items:
                     attachments = {"media": media_items}
                 # forward metadata
