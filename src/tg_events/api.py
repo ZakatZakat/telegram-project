@@ -49,7 +49,7 @@ class MiniappPostsResponse(BaseModel):
 @app.get("/miniapp/api/posts", response_model=MiniappPostsResponse)
 async def miniapp_posts(
     session: AsyncSession = Depends(get_session),
-    limit: int = 100,
+    limit: int = 500,
     username: Optional[str] = None,
     channel_id: Optional[int] = None,
 ) -> MiniappPostsResponse:
@@ -111,7 +111,7 @@ async def miniapp_channels(limit: int = 300) -> ChannelsResponse:
 
 class MiniIngestRequest(BaseModel):
     channel: str
-    limit: Optional[int] = 300
+    limit: Optional[int] = 500
     force_media: Optional[bool] = True
 
 
@@ -120,7 +120,7 @@ async def miniapp_ingest(
     req: MiniIngestRequest, session: AsyncSession = Depends(get_session)
 ) -> dict[str, str]:
     return await ingest_channels(
-        session, [req.channel], limit=req.limit or 300, update_existing_media=bool(req.force_media)
+        session, [req.channel], limit=req.limit or 500, update_existing_media=bool(req.force_media)
     )
 
 # Serve static Mini App (mounted AFTER API routes so it doesn't shadow /miniapp/api/*)

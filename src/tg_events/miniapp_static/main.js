@@ -26,7 +26,7 @@
     } else if (u) {
       params.set("username", u.startsWith("@") ? u.slice(1) : u);
     }
-    params.set("limit", "100");
+    params.set("limit", "500");
     const res = await fetch(`/miniapp/api/posts?${params.toString()}`);
     const data = await res.json();
     const items = data.items || [];
@@ -154,7 +154,7 @@
     ingestBtn.disabled = true;
     ingestBtn.textContent = "Ingesting…";
     try {
-      const body = { channel: sel, limit: 300, force_media: true };
+      const body = { channel: sel, limit: 500, force_media: true };
       const r = await fetch(`/miniapp/api/ingest`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
