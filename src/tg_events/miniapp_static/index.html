@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>TG Events Mini App</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <link rel="stylesheet" href="/miniapp/styles.css?v=2" />
+    <link rel="stylesheet" href="/miniapp/styles.css?v=3" />
   </head>
   <body>
     <div id="app">
@@ -16,14 +16,16 @@
             <option value="">All channels</option>
           </select>
           <input id="userFilter" placeholder="@username (optional)" />
+          <input id="genCount" type="number" min="1" max="500" value="50" style="width:90px" placeholder="Count" />
           <button id="reloadBtn">Reload</button>
           <button id="refreshChannelsBtn">Refresh channels</button>
           <button id="ingestBtn">Ingest selected</button>
+          <button id="genBtn">Generate comments</button>
         </div>
       </header>
       <main id="list"></main>
     </div>
-    <script src="/miniapp/main.js?v=2"></script>
+    <script src="/miniapp/main.js?v=6"></script>
   </body>
   </html>
 

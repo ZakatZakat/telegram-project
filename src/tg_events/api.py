@@ -1,18 +1,20 @@
+import asyncio
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import Depends, FastAPI
+from fastapi import BackgroundTasks, Depends, FastAPI
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.staticfiles import StaticFiles
 
-from tg_events.db import get_session
+from tg_events.db import SessionLocal, get_session
 from tg_events.config import get_settings
 from tg_events.ingest.service import ingest_channels
 from tg_events.repositories.miniapp_queries import list_recent_messages
 from tg_events.ingest.telethon_client import build_client, open_client
 from telethon.utils import get_display_name
 from telethon.tl.types import Channel as TlChannel, User as TlUser
+from tg_events.ai.commenter import comment_message
 
 
 settings = get_settings()
@@ -122,6 +124,35 @@ async def miniapp_ingest(
     return await ingest_channels(
         session, [req.channel], limit=req.limit or 500, update_existing_media=bool(req.force_media)
     )
+
+class GenerateCommentsRequest(BaseModel):
+    message_ids: List[int]
+    model: Optional[str] = None
+
+
+@app.post("/miniapp/api/comments/generate")
+async def generate_comments(req: GenerateCommentsRequest, tasks: BackgroundTasks) -> dict[str, int]:
+    # Process in background to keep UI responsive
+    s = get_settings()
+    # cap batch size to avoid overload
+    ids = list(dict.fromkeys(req.message_ids))[:50]
+
+    async def _worker(message_id: int) -> None:
+        async with SessionLocal() as ses:
+            try:
+                await comment_message(ses, message_id, model=req.model or s.ai_model)
+            except Exception:
+                pass
+
+    async def _run() -> None:
+        await asyncio.gather(*(_worker(mid) for mid in ids))
+
+    # Schedule the async gather via background tasks
+    def _start() -> None:
+        asyncio.run(_run())
+
+    tasks.add_task(_start)
+    return {"accepted": len(ids)}
 
 # Serve static Mini App (mounted AFTER API routes so it doesn't shadow /miniapp/api/*)
 miniapp_dir = Path(__file__).parent / "miniapp_static"

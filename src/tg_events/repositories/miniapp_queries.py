@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from typing import Any, List, Optional, TypedDict
 
-from sqlalchemy import Select, desc, select
+from sqlalchemy import Select, and_, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tg_events.models import Channel, MessageRaw
+from tg_events.models import AiComment, Channel, MessageRaw
 from tg_events.config import get_settings
 
 
@@ -27,28 +27,31 @@ async def list_recent_messages(
     channel_tg_id: Optional[int] = None,
 ) -> List[MiniappPost]:
     settings = get_settings()
-    stmt: Select[Any] = (
-        select(
-            MessageRaw.id,
-            MessageRaw.msg_id,
-            MessageRaw.date,
-            MessageRaw.text,
-            MessageRaw.attachments,
-            MessageRaw.features,
-            Channel.title,
-            Channel.username,
-        )
-        .join(Channel, Channel.id == MessageRaw.channel_id)
-        .order_by(desc(MessageRaw.date))
-        .limit(limit)
-    )
+    stmt: Select[Any] = select(
+        MessageRaw.id,
+        MessageRaw.msg_id,
+        MessageRaw.date,
+        MessageRaw.text,
+        MessageRaw.attachments,
+        MessageRaw.features,
+        Channel.title,
+        Channel.username,
+        AiComment.comment_text.label("ai_comment"),
+    ).join(Channel, Channel.id == MessageRaw.channel_id, isouter=False).join(
+        AiComment,
+        and_(
+            AiComment.message_id == MessageRaw.id,
+            AiComment.model == settings.ai_model,
+        ),
+        isouter=True,
+    ).order_by(desc(MessageRaw.date)).limit(limit)
     if channel_username:
         stmt = stmt.where(Channel.username == channel_username)
     if channel_tg_id is not None:
         stmt = stmt.where(Channel.tg_id == channel_tg_id)
     rows = (await session.execute(stmt)).all()
     items: List[MiniappPost] = []
-    for rid, msg_id, date, text, attachments, features, title, username in rows:
+    for rid, msg_id, date, text, attachments, features, title, username, ai_comment in rows:
         source_url: Optional[str] = None
         if username:
             source_url = f"https://t.me/{username}/{msg_id}"
@@ -82,6 +85,8 @@ async def list_recent_messages(
             "channel_username": username,
             "source_url": source_url,
         }
+        if ai_comment:
+            item["ai_comment"] = ai_comment
         if features and isinstance(features, dict):
             fwd = features.get("forward")
             if isinstance(fwd, dict):

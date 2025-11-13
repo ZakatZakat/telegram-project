@@ -11,6 +11,67 @@
   const channelSelect = document.getElementById("channelSelect");
   const ingestBtn = document.getElementById("ingestBtn");
   const refreshChannelsBtn = document.getElementById("refreshChannelsBtn");
+  const genBtn = document.getElementById("genBtn");
+  const genCount = document.getElementById("genCount");
+  let lastItems = [];
+  let autoTimer = null;
+
+  function sleep(ms) {
+    return new Promise((r) => setTimeout(r, ms));
+  }
+
+  function buildParams() {
+    const params = new URLSearchParams();
+    const selected = channelSelect.value ? channelSelect.value.trim() : "";
+    const u = userFilter.value.trim();
+    if (selected) {
+      if (selected.startsWith("@")) {
+        params.set("username", selected.slice(1));
+      } else {
+        params.set("channel_id", selected);
+      }
+    } else if (u) {
+      params.set("username", u.startsWith("@") ? u.slice(1) : u);
+    }
+    params.set("limit", "500");
+    return params;
+  }
+
+  function scheduleAutoRefresh() {
+    if (autoTimer) {
+      clearInterval(autoTimer);
+      autoTimer = null;
+    }
+    autoTimer = setInterval(async () => {
+      try {
+        const cards = Array.from(document.querySelectorAll(".comment-card"));
+        const needIds = [];
+        for (const el of cards) {
+          const idStr = el.id && el.id.startsWith("comment-") ? el.id.slice("comment-".length) : "";
+          const content = el.querySelector(".content");
+          if (idStr && content && content.textContent === "Generating…") {
+            const idNum = parseInt(idStr, 10);
+            if (!Number.isNaN(idNum)) needIds.push(idNum);
+          }
+        }
+        if (!needIds.length) return;
+        const r = await fetch(`/miniapp/api/posts?${buildParams().toString()}`);
+        const d = await r.json();
+        const items = d.items || [];
+        const byId = new Map(items.map((x) => [x.id, x]));
+        for (const id of needIds) {
+          const it = byId.get(id);
+          if (it && it.ai_comment) {
+            const el = document.getElementById(`comment-${id}`);
+            if (el) {
+              const t = it.channel_title || it.channel_username || "Channel";
+              el.innerHTML = `<div class="title">Comment: ${escapeHtml(t)}</div><div class="content">${escapeHtml(it.ai_comment)}</div>`;
+            }
+          }
+        }
+      } catch {}
+    }, 2000);
+  }
 
   async function load() {
     listEl.innerHTML = "Loading...";
@@ -30,12 +91,17 @@
     const res = await fetch(`/miniapp/api/posts?${params.toString()}`);
     const data = await res.json();
     const items = data.items || [];
+    lastItems = items;
     if (!items.length) {
       listEl.innerHTML = "<p>No posts.</p>";
       return;
     }
     listEl.innerHTML = "";
     for (const it of items) {
+      // Row container
+      const row = document.createElement("div");
+      row.className = "row";
+      // Left column: post
       const card = document.createElement("article");
       card.className = "card";
       const title = it.channel_title || it.channel_username || "Channel";
@@ -100,8 +166,18 @@
         }
         card.appendChild(gallery);
       }
-      listEl.appendChild(card);
+      // Right column: AI comment
+      const cc = document.createElement("article");
+      cc.className = "comment-card";
+      cc.id = `comment-${it.id}`;
+      const heading = title ? `Comment: ${escapeHtml(title)}` : "Comment";
+      const content = it.ai_comment ? escapeHtml(it.ai_comment) : "Generating…";
+      cc.innerHTML = `<div class="title">${heading}</div><div class="content">${content}</div>`;
+      row.appendChild(card);
+      row.appendChild(cc);
+      listEl.appendChild(row);
     }
+    scheduleAutoRefresh();
   }
 
   async function loadChannels() {
@@ -134,6 +210,12 @@
     userFilter.value = val.startsWith("@") ? val : (val ? "" : "");
     load();
   });
+  window.addEventListener("beforeunload", () => {
+    if (autoTimer) {
+      clearInterval(autoTimer);
+      autoTimer = null;
+    }
+  });
 
   function escapeHtml(s) {
     return s
@@ -145,6 +227,70 @@
   }
 
   reloadBtn.addEventListener("click", load);
+  if (genBtn) {
+    genBtn.addEventListener("click", async () => {
+      const maxN = Math.max(1, Math.min(500, parseInt(genCount?.value || "50", 10) || 50));
+      // collect missing from currently loaded items
+      const missing = [];
+      for (const it of lastItems) {
+        if (!it.ai_comment) missing.push(it.id);
+        if (missing.length >= maxN) break;
+      }
+      if (!missing.length) return;
+      genBtn.disabled = true;
+      const oldLabel = genBtn.textContent;
+      genBtn.textContent = `Generating ${missing.length}…`;
+      // send in batches of 50
+      for (let i = 0; i < missing.length; i += 50) {
+        const batch = missing.slice(i, i + 50);
+        try {
+          await fetch(`/miniapp/api/comments/generate`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ message_ids: batch }),
+          });
+        } catch {}
+        await sleep(400);
+      }
+      // poll updates up to ~10s
+      const params = new URLSearchParams();
+      const selected = channelSelect.value ? channelSelect.value.trim() : "";
+      const u = userFilter.value.trim();
+      if (selected) {
+        if (selected.startsWith("@")) {
+          params.set("username", selected.slice(1));
+        } else {
+          params.set("channel_id", selected);
+        }
+      } else if (u) {
+        params.set("username", u.startsWith("@") ? u.slice(1) : u);
+      }
+      params.set("limit", "500");
+      for (let round = 0; round < 7; round++) {
+        await sleep(1500);
+        const r = await fetch(`/miniapp/api/posts?${params.toString()}`);
+        const d = await r.json();
+        const items2 = d.items || [];
+        const byId = new Map(items2.map((x) => [x.id, x]));
+        let remaining = 0;
+        for (const id of missing) {
+          const it2 = byId.get(id);
+          if (it2 && it2.ai_comment) {
+            const el = document.getElementById(`comment-${id}`);
+            if (el) {
+              const t = it2.channel_title || it2.channel_username || "Channel";
+              el.innerHTML = `<div class="title">Comment: ${escapeHtml(t)}</div><div class="content">${escapeHtml(it2.ai_comment)}</div>`;
+            }
+          } else {
+            remaining++;
+          }
+        }
+        if (!remaining) break;
+      }
+      genBtn.disabled = false;
+      genBtn.textContent = oldLabel;
+    });
+  }
   ingestBtn.addEventListener("click", async () => {
     const sel = channelSelect.value.trim() || userFilter.value.trim();
     if (!sel) {
