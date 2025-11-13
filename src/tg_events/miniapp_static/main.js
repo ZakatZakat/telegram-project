@@ -13,6 +13,8 @@
   const refreshChannelsBtn = document.getElementById("refreshChannelsBtn");
   const genBtn = document.getElementById("genBtn");
   const genCount = document.getElementById("genCount");
+  const genStatus = document.getElementById("genStatus");
+  const clearBtn = document.getElementById("clearBtn");
   let lastItems = [];
   let autoTimer = null;
 
@@ -229,29 +231,37 @@
   reloadBtn.addEventListener("click", load);
   if (genBtn) {
     genBtn.addEventListener("click", async () => {
-      const maxN = Math.max(1, Math.min(500, parseInt(genCount?.value || "50", 10) || 50));
-      // collect missing from currently loaded items
+      // Generate for ALL visible posts of the current selection (ignore Count)
       const missing = [];
       for (const it of lastItems) {
         if (!it.ai_comment) missing.push(it.id);
-        if (missing.length >= maxN) break;
       }
       if (!missing.length) return;
+      if (genStatus) {
+        genStatus.textContent = "Generating… 0/" + missing.length;
+        genStatus.className = "status-badge progress";
+        genStatus.classList.remove("hidden");
+      }
       genBtn.disabled = true;
       const oldLabel = genBtn.textContent;
       genBtn.textContent = `Generating ${missing.length}…`;
-      // send in batches of 50
-      for (let i = 0; i < missing.length; i += 50) {
-        const batch = missing.slice(i, i + 50);
-        try {
-          await fetch(`/miniapp/api/comments/generate`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ message_ids: batch }),
-          });
-        } catch {}
-        await sleep(400);
+      // single request: backend processes sequentially with 1s delay per item
+      const selVal = channelSelect.value ? channelSelect.value.trim() : "";
+      const u2 = userFilter.value.trim();
+      const body = { message_ids: missing };
+      if (selVal) {
+        if (selVal.startsWith("@")) body.username = selVal.slice(1);
+        else body.channel_id = /^\d+$/.test(selVal) ? Number(selVal) : undefined;
+      } else if (u2) {
+        body.username = u2.startsWith("@") ? u2.slice(1) : u2;
       }
+      try {
+        await fetch(`/miniapp/api/comments/generate`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+      } catch {}
       // poll updates up to ~10s
       const params = new URLSearchParams();
       const selected = channelSelect.value ? channelSelect.value.trim() : "";
@@ -266,13 +276,16 @@
         params.set("username", u.startsWith("@") ? u.slice(1) : u);
       }
       params.set("limit", "500");
-      for (let round = 0; round < 7; round++) {
+      let remaining = missing.length;
+      // estimate rounds based on ~1s per item; each round = 1.5s
+      const maxRounds = Math.min(60, Math.ceil((missing.length * 1.2 + 5) / 1.5));
+      for (let round = 0; round < maxRounds; round++) {
         await sleep(1500);
         const r = await fetch(`/miniapp/api/posts?${params.toString()}`);
         const d = await r.json();
         const items2 = d.items || [];
         const byId = new Map(items2.map((x) => [x.id, x]));
-        let remaining = 0;
+        remaining = 0;
         for (const id of missing) {
           const it2 = byId.get(id);
           if (it2 && it2.ai_comment) {
@@ -285,10 +298,65 @@
             remaining++;
           }
         }
+        if (genStatus) {
+          const done = missing.length - remaining;
+          genStatus.textContent = `Generating… ${done}/${missing.length}`;
+        }
         if (!remaining) break;
       }
       genBtn.disabled = false;
       genBtn.textContent = oldLabel;
+      if (genStatus) {
+        if (remaining === 0) {
+          genStatus.textContent = `✓ Done (${missing.length}/${missing.length})`;
+          genStatus.className = "status-badge";
+        } else if (remaining < missing.length) {
+          const done = missing.length - remaining;
+          genStatus.textContent = `Partial: ${done}/${missing.length}`;
+          genStatus.className = "status-badge progress";
+        } else {
+          genStatus.textContent = "No changes";
+          genStatus.className = "status-badge error";
+        }
+      }
+    });
+  }
+  if (clearBtn) {
+    clearBtn.addEventListener("click", async () => {
+      const selVal = channelSelect.value ? channelSelect.value.trim() : "";
+      const u = userFilter.value.trim();
+      const scope = {};
+      if (selVal) {
+        if (selVal.startsWith("@")) scope.username = selVal.slice(1);
+        else scope.channel_id = /^\d+$/.test(selVal) ? Number(selVal) : undefined;
+      } else if (u) {
+        scope.username = u.startsWith("@") ? u.slice(1) : u;
+      }
+      const confirmText = scope.username || scope.channel_id
+        ? "Delete comments only for the selected channel/user?"
+        : "Delete ALL generated comments?";
+      if (!confirm(confirmText)) return;
+      try {
+        await fetch(`/miniapp/api/comments`, {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(scope),
+        });
+        // after deletion, refresh list
+        await load();
+        if (genStatus) {
+          genStatus.textContent = "✓ Cleared";
+          genStatus.className = "status-badge";
+          genStatus.classList.remove("hidden");
+        }
+      } catch (e) {
+        if (genStatus) {
+          genStatus.textContent = "Error clearing";
+          genStatus.className = "status-badge error";
+          genStatus.classList.remove("hidden");
+        }
+        console.error(e);
+      }
     });
   }
   ingestBtn.addEventListener("click", async () => {
@@ -297,10 +365,11 @@
       alert("Select a channel or enter @username");
       return;
     }
+    const cnt = Math.max(1, Math.min(2000, parseInt(genCount?.value || "50", 10) || 50));
     ingestBtn.disabled = true;
     ingestBtn.textContent = "Ingesting…";
     try {
-      const body = { channel: sel, limit: 500, force_media: true };
+      const body = { channel: sel, limit: cnt, force_media: true };
       const r = await fetch(`/miniapp/api/ingest`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

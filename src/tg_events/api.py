@@ -1,5 +1,6 @@
 import asyncio
 from pathlib import Path
+import logging
 from typing import List, Optional
 
 from fastapi import BackgroundTasks, Depends, FastAPI
@@ -15,10 +16,13 @@ from tg_events.ingest.telethon_client import build_client, open_client
 from telethon.utils import get_display_name
 from telethon.tl.types import Channel as TlChannel, User as TlUser
 from tg_events.ai.commenter import comment_message
+from sqlalchemy import delete, select
+from tg_events.models import AiComment, Channel, MessageRaw
 
 
 settings = get_settings()
 app = FastAPI(title=settings.app_name)
+logger = logging.getLogger("tg_events.api")
 
 
 @app.get("/health")
@@ -128,6 +132,9 @@ async def miniapp_ingest(
 class GenerateCommentsRequest(BaseModel):
     message_ids: List[int]
     model: Optional[str] = None
+    # optional scope restriction to a single channel/user
+    username: Optional[str] = None
+    channel_id: Optional[int] = None
 
 
 @app.post("/miniapp/api/comments/generate")
@@ -135,17 +142,42 @@ async def generate_comments(req: GenerateCommentsRequest, tasks: BackgroundTasks
     # Process in background to keep UI responsive
     s = get_settings()
     # cap batch size to avoid overload
-    ids = list(dict.fromkeys(req.message_ids))[:50]
+    ids = list(dict.fromkeys(req.message_ids))
+    if not s.openai_api_key:
+        logger.warning("OPENAI_API_KEY missing; skip generation", requested=len(req.message_ids))
+        return {"accepted": 0}
 
-    async def _worker(message_id: int) -> None:
+    # If scope provided, filter message_ids to the chosen channel/user
+    if req.username or req.channel_id is not None:
+        from sqlalchemy import and_, select
+        from tg_events.models import Channel, MessageRaw
+
         async with SessionLocal() as ses:
-            try:
-                await comment_message(ses, message_id, model=req.model or s.ai_model)
-            except Exception:
-                pass
+            conds = []
+            if req.username:
+                conds.append(Channel.username == req.username)
+            if req.channel_id is not None:
+                conds.append(Channel.tg_id == req.channel_id)
+            q = (
+                select(MessageRaw.id)
+                .join(Channel, Channel.id == MessageRaw.channel_id)
+                .where(MessageRaw.id.in_(ids))
+            )
+            if conds:
+                from sqlalchemy import and_ as _and
+                q = q.where(_and(*conds))
+            rows = (await ses.execute(q)).scalars().all()
+            ids = list(dict.fromkeys(rows))
 
     async def _run() -> None:
-        await asyncio.gather(*(_worker(mid) for mid in ids))
+        # Sequential processing with ~1s delay between items
+        for mid in ids:
+            async with SessionLocal() as ses:
+                try:
+                    await comment_message(ses, mid, model=req.model or s.ai_model)
+                except Exception as e:
+                    logger.exception("generate_comment failed", extra={"message_id": mid, "error": str(e)})
+            await asyncio.sleep(1.0)
 
     # Schedule the async gather via background tasks
     def _start() -> None:
@@ -153,6 +185,45 @@ async def generate_comments(req: GenerateCommentsRequest, tasks: BackgroundTasks
 
     tasks.add_task(_start)
     return {"accepted": len(ids)}
+
+
+class DeleteCommentsRequest(BaseModel):
+    # delete by explicit messages, or by scope, or everything if neither provided
+    message_ids: Optional[List[int]] = None
+    username: Optional[str] = None
+    channel_id: Optional[int] = None
+
+
+@app.delete("/miniapp/api/comments")
+async def delete_comments(req: DeleteCommentsRequest) -> dict[str, int]:
+    deleted = 0
+    async with SessionLocal() as ses:
+        if req.message_ids:
+            stmt = delete(AiComment).where(AiComment.message_id.in_(req.message_ids))
+            res = await ses.execute(stmt)
+            deleted = res.rowcount or 0
+        elif req.username or req.channel_id is not None:
+            conds = []
+            if req.username:
+                conds.append(Channel.username == req.username)
+            if req.channel_id is not None:
+                conds.append(Channel.tg_id == req.channel_id)
+            sub = (
+                select(MessageRaw.id)
+                .join(Channel, Channel.id == MessageRaw.channel_id)
+            )
+            if conds:
+                from sqlalchemy import and_ as _and
+                sub = sub.where(_and(*conds))
+            stmt = delete(AiComment).where(AiComment.message_id.in_(sub))
+            res = await ses.execute(stmt)
+            deleted = res.rowcount or 0
+        else:
+            # delete all comments
+            res = await ses.execute(delete(AiComment))
+            deleted = res.rowcount or 0
+        await ses.commit()
+    return {"deleted": int(deleted)}
 
 # Serve static Mini App (mounted AFTER API routes so it doesn't shadow /miniapp/api/*)
 miniapp_dir = Path(__file__).parent / "miniapp_static"

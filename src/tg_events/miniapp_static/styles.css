@@ -54,6 +54,23 @@ header button {
   color: var(--fg);
   cursor: pointer;
 }
+header button#clearBtn {
+  margin-left: 6px;
+}
+.status-badge {
+  margin-left: 8px;
+  font-weight: 600;
+  color: #22c55e; /* green */
+}
+.status-badge.progress {
+  color: var(--muted);
+}
+.status-badge.error {
+  color: #ef4444; /* red */
+}
+.hidden {
+  display: none;
+}
 /* Row with left (post) and right (comment) */
 .row {
   display: grid;
