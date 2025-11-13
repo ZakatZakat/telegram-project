@@ -10,6 +10,18 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from tg_events.models.base import Base, TimestampMixin
 
 
+class AiComment(TimestampMixin, Base):
+    __tablename__ = "ai_comments"
+    __table_args__ = (UniqueConstraint("message_id", "model", name="uq_ai_comments_message_model"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    message_id: Mapped[int] = mapped_column(ForeignKey("messages_raw.id", ondelete="CASCADE"), index=True)
+    model: Mapped[str] = mapped_column(String(64), nullable=False)
+    comment_text: Mapped[str] = mapped_column(Text, nullable=False)
+
+    message: Mapped["MessageRaw"] = relationship()
+
+
 class Channel(TimestampMixin, Base):
     __tablename__ = "channels"
 
