@@ -104,6 +104,14 @@ main .card, .comment-card {
   font-weight: 600;
   color: var(--fg);
 }
+.meta .num, .comment-card .title .num {
+  display: inline-block;
+  min-width: 28px;
+  text-align: right;
+  margin-right: 8px;
+  color: var(--muted);
+  font-weight: 700;
+}
 .card .fwd {
   margin: 4px 0 8px;
   color: var(--muted);

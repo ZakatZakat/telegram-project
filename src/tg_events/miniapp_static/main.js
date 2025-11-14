@@ -99,7 +99,8 @@
       return;
     }
     listEl.innerHTML = "";
-    for (const it of items) {
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
       // Row container
       const row = document.createElement("div");
       row.className = "row";
@@ -118,6 +119,7 @@
         `<div class="fwd">Forwarded from ${escapeHtml(fwdSource)}</div>` : "";
       const textHtml = `
         <div class="meta">
+          <span class="num">${String(i + 1)}.</span>
           <span class="ch">${title}</span>
           <span class="dt">${new Date(it.date).toLocaleString()}</span>
           ${link}
@@ -172,7 +174,7 @@
       const cc = document.createElement("article");
       cc.className = "comment-card";
       cc.id = `comment-${it.id}`;
-      const heading = title ? `Comment: ${escapeHtml(title)}` : "Comment";
+      const heading = title ? `<span class="num">${String(i + 1)}.</span> Comment: ${escapeHtml(title)}` : `<span class="num">${String(i + 1)}.</span> Comment`;
       const content = it.ai_comment ? escapeHtml(it.ai_comment) : "Generating…";
       cc.innerHTML = `<div class="title">${heading}</div><div class="content">${content}</div>`;
       row.appendChild(card);
