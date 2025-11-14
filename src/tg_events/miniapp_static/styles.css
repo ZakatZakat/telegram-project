@@ -39,8 +39,6 @@ html, body {
 #topics {
   position: sticky;
   top: 8px;
-  height: calc(100vh - 24px);
-  overflow: auto;
   border: 1px solid #7f1d1d;
   background: #1b0d0d;
   color: #fecaca;
