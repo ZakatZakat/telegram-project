@@ -67,7 +67,7 @@
         for (const el of cards) {
           const idStr = el.id && el.id.startsWith("comment-") ? el.id.slice("comment-".length) : "";
           const content = el.querySelector(".content");
-          if (idStr && content && content.textContent === "Generating…") {
+          if (idStr && content && content.textContent === "Комментарий отсутствует") {
             const idNum = parseInt(idStr, 10);
             if (!Number.isNaN(idNum)) needIds.push(idNum);
           }
@@ -191,7 +191,7 @@
       cc.className = "comment-card";
       cc.id = `comment-${it.id}`;
       const heading = title ? `<span class="num">${String(i + 1)}.</span> Comment: ${escapeHtml(title)}` : `<span class="num">${String(i + 1)}.</span> Comment`;
-      const content = it.ai_comment ? escapeHtml(it.ai_comment) : "Generating…";
+      const content = it.ai_comment ? escapeHtml(it.ai_comment) : "Комментарий отсутствует";
       cc.innerHTML = `<div class="title">${heading} <button class="action fix-comment" data-id="${it.id}">Fix</button> <button class="action del-comment" data-id="${it.id}">Delete</button></div><div class="content">${content}</div>`;
       // add delete post button into header right
       const right = card.querySelector(".meta .right");
@@ -420,7 +420,7 @@
         if (el) {
           const titleEl = el.querySelector(".title");
           const contentEl = el.querySelector(".content");
-          if (contentEl) contentEl.textContent = "Generating…";
+          if (contentEl) contentEl.textContent = "Комментарий отсутствует";
           // also reset in lastItems
           for (const it of lastItems) {
             if (it.id === id) {
