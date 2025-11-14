@@ -210,14 +210,16 @@
           }
           card.appendChild(gallery);
         }
-        const cc = document.createElement("article");
-        cc.className = "comment-card";
-        cc.id = `comment-${it.id}`;
-        const heading = title ? `<span class="num">${String(displayIndex + 1)}.</span> Comment: ${escapeHtml(title)}` : `<span class="num">${String(displayIndex + 1)}.</span> Comment`;
-        const content = it.ai_comment ? escapeHtml(it.ai_comment) : "Комментарий отсутствует";
-        cc.innerHTML = `<div class="title">${heading} <button class="action fix-comment" data-id="${it.id}">Fix</button> <button class="action del-comment" data-id="${it.id}">Delete</button></div><div class="content">${content}</div>`;
         row.appendChild(card);
-        row.appendChild(cc);
+        if (!asChild) {
+          const cc = document.createElement("article");
+          cc.className = "comment-card";
+          cc.id = `comment-${it.id}`;
+          const heading = title ? `<span class="num">${String(displayIndex + 1)}.</span> Comment: ${escapeHtml(title)}` : `<span class="num">${String(displayIndex + 1)}.</span> Comment`;
+          const content = it.ai_comment ? escapeHtml(it.ai_comment) : "Комментарий отсутствует";
+          cc.innerHTML = `<div class="title">${heading} <button class="action fix-comment" data-id="${it.id}">Fix</button> <button class="action del-comment" data-id="${it.id}">Delete</button></div><div class="content">${content}</div>`;
+          row.appendChild(cc);
+        }
         return row;
       }
       // Render main row
@@ -394,57 +396,46 @@
   reloadBtn.addEventListener("click", load);
   if (genBtn) {
     genBtn.addEventListener("click", async () => {
-      // Generate for ALL visible posts of the current selection (ignore Count)
-      const missing = [];
-      for (const it of lastItems) {
-        if (!it.ai_comment) missing.push(it.id);
+      // Build list of main items and overrides (prepend child text if exists)
+      const overrides = [];
+      for (let i = 0; i < lastItems.length; i++) {
+        const it = lastItems[i];
+        const isUp = typeof it.text === "string" && it.text.trim().startsWith("👆");
+        if (!isUp) {
+          // check child at i-1
+          let extra = "";
+          if (i - 1 >= 0) {
+            const prev = lastItems[i - 1];
+            const prevIsUp = typeof prev.text === "string" && prev.text.trim().startsWith("👆");
+            if (prevIsUp) extra = prev.text || "";
+          }
+          // always generate for main posts (even if ai_comment exists), skipping only 👆 items
+          const combined = extra ? `${it.text || ""}\n\n${extra}` : (it.text || "");
+          overrides.push({ message_id: it.id, text: combined });
+        }
       }
-      if (!missing.length) return;
+      if (!overrides.length) return;
       if (genStatus) {
-        genStatus.textContent = "Generating… 0/" + missing.length;
+        genStatus.textContent = `Generating… 0/${overrides.length}`;
         genStatus.className = "status-badge progress";
         genStatus.classList.remove("hidden");
       }
       genBtn.disabled = true;
       const oldLabel = genBtn.textContent;
-      genBtn.textContent = `Generating ${missing.length}…`;
-      // show Stop button if present
+      genBtn.textContent = `Generating ${overrides.length}…`;
       const stopBtn = document.getElementById("stopGenBtn");
       if (stopBtn) { stopBtn.disabled = false; stopBtn.classList.remove("hidden"); }
-      // single request: backend processes sequentially with 1s delay per item
-      const selVal = channelSelect.value ? channelSelect.value.trim() : "";
-      const u2 = userFilter.value.trim();
-      const body = { message_ids: missing };
-      if (selVal) {
-        if (selVal.startsWith("@")) body.username = selVal.slice(1);
-        else body.channel_id = /^\d+$/.test(selVal) ? Number(selVal) : undefined;
-      } else if (u2) {
-        body.username = u2.startsWith("@") ? u2.slice(1) : u2;
-      }
       try {
-        await fetch(`/miniapp/api/comments/generate`, {
+        await fetch(`/miniapp/api/comments/generate_override`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
+          body: JSON.stringify({ items: overrides }),
         });
       } catch {}
-      // poll updates up to ~10s
-      const params = new URLSearchParams();
-      const selected = channelSelect.value ? channelSelect.value.trim() : "";
-      const u = userFilter.value.trim();
-      if (selected) {
-        if (selected.startsWith("@")) {
-          params.set("username", selected.slice(1));
-        } else {
-          params.set("channel_id", selected);
-        }
-      } else if (u) {
-        params.set("username", u.startsWith("@") ? u.slice(1) : u);
-      }
-      params.set("limit", "500");
-      let remaining = missing.length;
-      // estimate rounds based on ~1s per item; each round = 1.5s
-      const maxRounds = Math.min(60, Math.ceil((missing.length * 1.2 + 5) / 1.5));
+      // Polling same as before
+      const params = buildParams();
+      let remaining = overrides.length;
+      const maxRounds = Math.min(60, Math.ceil((overrides.length * 1.2 + 5) / 1.5));
       for (let round = 0; round < maxRounds; round++) {
         await sleep(1500);
         const r = await fetch(`/miniapp/api/posts?${params.toString()}`);
@@ -452,21 +443,21 @@
         const items2 = d.items || [];
         const byId = new Map(items2.map((x) => [x.id, x]));
         remaining = 0;
-        for (const id of missing) {
-          const it2 = byId.get(id);
+        for (const it of overrides) {
+          const it2 = byId.get(it.message_id);
           if (it2 && it2.ai_comment) {
-            const el = document.getElementById(`comment-${id}`);
+            const el = document.getElementById(`comment-${it.message_id}`);
             if (el) {
               const t = it2.channel_title || it2.channel_username || "Channel";
-              el.innerHTML = `<div class="title">Comment: ${escapeHtml(t)}</div><div class="content">${escapeHtml(it2.ai_comment)}</div>`;
+              el.innerHTML = `<div class="title"><span class="num"></span> Comment: ${escapeHtml(t)} <button class="action fix-comment" data-id="${it2.id}">Fix</button> <button class="action del-comment" data-id="${it2.id}">Delete</button></div><div class="content">${escapeHtml(it2.ai_comment)}</div>`;
             }
           } else {
             remaining++;
           }
         }
         if (genStatus) {
-          const done = missing.length - remaining;
-          genStatus.textContent = `Generating… ${done}/${missing.length}`;
+          const done = overrides.length - remaining;
+          genStatus.textContent = `Generating… ${done}/${overrides.length}`;
         }
         if (!remaining) break;
       }
@@ -474,15 +465,12 @@
       genBtn.textContent = oldLabel;
       if (genStatus) {
         if (remaining === 0) {
-          genStatus.textContent = `✓ Done (${missing.length}/${missing.length})`;
+          genStatus.textContent = `✓ Done (${overrides.length}/${overrides.length})`;
           genStatus.className = "status-badge";
-        } else if (remaining < missing.length) {
-          const done = missing.length - remaining;
-          genStatus.textContent = `Partial: ${done}/${missing.length}`;
-          genStatus.className = "status-badge progress";
         } else {
-          genStatus.textContent = "No changes";
-          genStatus.className = "status-badge error";
+          const done = overrides.length - remaining;
+          genStatus.textContent = `Partial: ${done}/${overrides.length}`;
+          genStatus.className = "status-badge progress";
         }
       }
       if (stopBtn) { stopBtn.disabled = true; }

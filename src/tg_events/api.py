@@ -249,6 +249,75 @@ def stop_generation() -> StopResponse:
     return StopResponse(status="stopping")
 
 
+class GenerateOverrideItem(BaseModel):
+    message_id: int
+    text: str
+    model: Optional[str] = None
+
+
+class GenerateOverrideRequest(BaseModel):
+    items: List[GenerateOverrideItem]
+
+
+@app.post("/miniapp/api/comments/generate_override")
+async def generate_comments_override(req: GenerateOverrideRequest) -> dict[str, int]:
+    """Generate comments using provided text overrides for specific message_ids."""
+    s = get_settings()
+    if not s.openai_api_key:
+        logger.warning("OPENAI_API_KEY missing; skip override generation", requested=len(req.items))
+        return {"accepted": 0}
+
+    global cancel_generation, current_generation_task
+    try:
+        if current_generation_task and not current_generation_task.done():
+            current_generation_task.cancel()
+    except Exception:
+        pass
+    cancel_generation = False
+
+    async def _run_override() -> None:
+        from sqlalchemy import update as sa_update
+        from tg_events.models import AiComment
+        for it in req.items:
+            if cancel_generation:
+                break
+            text = (it.text or "").strip()
+            if not text:
+                continue
+            # run sync generator in executor
+            loop = asyncio.get_running_loop()
+            from tg_events.ai.commenter import generate_comment_sync
+
+            try:
+                comment = await loop.run_in_executor(
+                    None, lambda: generate_comment_sync(text, model=it.model or s.ai_model)
+                )
+                async with SessionLocal() as ses:
+                    # upsert: try update, if 0 rows affected → insert
+                    res = await ses.execute(
+                        sa_update(AiComment)
+                        .where(
+                            AiComment.message_id == it.message_id,
+                            AiComment.model == (it.model or s.ai_model),
+                        )
+                        .values(comment_text=comment)
+                    )
+                    if (res.rowcount or 0) == 0:
+                        rec = AiComment(
+                            message_id=it.message_id,
+                            model=(it.model or s.ai_model),
+                            comment_text=comment,
+                        )
+                        ses.add(rec)
+                    await ses.commit()
+            except Exception as e:
+                logger.exception("generate_override failed", extra={"message_id": it.message_id, "error": str(e)})
+            await asyncio.sleep(0)  # yield control
+
+    current_generation_task = asyncio.create_task(_run_override())
+    return {"accepted": len(req.items)}
+
+
 class DeleteCommentsRequest(BaseModel):
     # delete by explicit messages, or by scope, or everything if neither provided
     message_ids: Optional[List[int]] = None
