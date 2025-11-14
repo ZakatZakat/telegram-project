@@ -107,107 +107,129 @@
       return;
     }
     listEl.innerHTML = "";
+    const rendered = new Set();
     for (let i = 0; i < items.length; i++) {
-      const it = items[i];
-      // Row container
-      const row = document.createElement("div");
-      row.className = "row";
-      // Left column: post
-      const card = document.createElement("article");
-      card.className = "card";
-      const title = it.channel_title || it.channel_username || "Channel";
-      const link = it.source_url ? `<a href="${it.source_url}" target="_blank">Open</a>` : "";
-      const fwdSource = (() => {
-        if (!it.forward) return "";
-        const u = it.forward.from_username ? `@${it.forward.from_username}` : "";
-        const title = it.forward.from_name || it.forward.from_title || "";
-        return u || title || (it.forward.from_type || "");
-      })();
-      const fwdUsername = it.forward?.from_username ? `@${it.forward.from_username}` : (it.forward?.from_name || "");
-      // For header badge show ANY forward source label (channel or user)
-      const sourceLabel = fwdUsername || fwdSource || "";
-      const userBadge = sourceLabel
-        ? `<span class="badge user" style="${styleForUserTag(sourceLabel)}">${escapeHtml(sourceLabel)}</span>`
-        : "";
-      const fwdHtml = fwdSource ? 
-        `<div class="fwd"><span class="fwd-label">Forwarded from ${escapeHtml(fwdSource)}</span></div>` : "";
-      const textHtml = `
-        <div class="meta">
-          <div class="left">
-            <span class="num">${String(i + 1)}.</span>
-            <span class="ch">${title}</span>
+      if (rendered.has(i)) continue;
+      const curr = items[i];
+      const isUp = typeof curr.text === "string" && curr.text.trim().startsWith("👆");
+      // If current is an 'up' comment and the next item exists and is NOT an 'up' comment,
+      // skip now; it will be rendered as a child of the next main post.
+      if (isUp && i + 1 < items.length) {
+        const nextIsUp = typeof items[i + 1].text === "string" && items[i + 1].text.trim().startsWith("👆");
+        if (!nextIsUp) continue;
+      }
+      // Determine main item index to render now
+      let mainIdx = i;
+      let childIdx = -1;
+      if (!isUp) {
+        // check if previous is an up-comment
+        if (i - 1 >= 0) {
+          const prev = items[i - 1];
+          const prevIsUp = typeof prev.text === "string" && prev.text.trim().startsWith("👆");
+          if (prevIsUp && !rendered.has(i - 1)) childIdx = i - 1;
+        }
+      } else {
+        // current is up and either last or next is also up (no main next) -> render standalone as child-styled
+        childIdx = i;
+        mainIdx = i; // fallback (no true main), render as normal row but with child style
+      }
+      // Helper to build a row
+      function buildRow(it, displayIndex, asChild) {
+        const row = document.createElement("div");
+        row.className = asChild ? "row child" : "row";
+        const card = document.createElement("article");
+        card.className = "card";
+        const title = it.channel_title || it.channel_username || "Channel";
+        const link = it.source_url ? `<a href="${it.source_url}" target="_blank">Open</a>` : "";
+        const fwdSource = (() => {
+          if (!it.forward) return "";
+          const u = it.forward.from_username ? `@${it.forward.from_username}` : "";
+          const title = it.forward.from_name || it.forward.from_title || "";
+          return u || title || (it.forward.from_type || "");
+        })();
+        const fwdUsername = it.forward?.from_username ? `@${it.forward.from_username}` : (it.forward?.from_name || "");
+        const sourceLabel = fwdUsername || fwdSource || "";
+        const userBadge = sourceLabel ? `<span class="badge user" style="${styleForUserTag(sourceLabel)}">${escapeHtml(sourceLabel)}</span>` : "";
+        const fwdHtml = fwdSource ? `<div class="fwd"><span class="fwd-label">Forwarded from ${escapeHtml(fwdSource)}</span></div>` : "";
+        const textHtml = `
+          <div class="meta">
+            <div class="left">
+              <span class="num">${String(displayIndex + 1)}.</span>
+              <span class="ch">${title}</span>
+            </div>
+            <div class="right">
+              <span class="dt">${new Date(it.date).toLocaleString()}</span>
+              ${link}
+              ${userBadge}
+            </div>
           </div>
-          <div class="right">
-            <span class="dt">${new Date(it.date).toLocaleString()}</span>
-            ${link}
-            ${userBadge}
-          </div>
-        </div>
-        ${fwdHtml}
-        <div class="text">${escapeHtml((it.text || "").slice(0, 800)).replace(/\\n/g, "<br/>")}</div>`;
-      card.innerHTML = textHtml;
-      if (Array.isArray(it.media) && it.media.length) {
-        const gallery = document.createElement("div");
-        gallery.className = "gallery";
-        for (const m of it.media.slice(0, 4)) {
-          if (m.kind === "video") {
-            const v = document.createElement("video");
-            v.src = m.url;
-            v.controls = true;
-            v.className = "vd";
-            v.preload = "metadata";
-            gallery.appendChild(v);
-          } else if (m.kind === "gif") {
-            const v = document.createElement("video");
-            v.src = m.url;
-            v.autoplay = true;
-            v.loop = true;
-            v.muted = true;
-            v.playsInline = true;
-            v.className = "vd";
-            gallery.appendChild(v);
-          } else {
+          ${fwdHtml}
+          <div class="text">${escapeHtml((it.text || "").slice(0, 800)).replace(/\\n/g, "<br/>")}</div>`;
+        card.innerHTML = textHtml;
+        // media
+        if (Array.isArray(it.media) && it.media.length) {
+          const gallery = document.createElement("div");
+          gallery.className = "gallery";
+          for (const m of it.media.slice(0, 4)) {
+            if (m.kind === "video") {
+              const v = document.createElement("video");
+              v.src = m.url;
+              v.controls = true;
+              v.className = "vd";
+              v.preload = "metadata";
+              gallery.appendChild(v);
+            } else if (m.kind === "gif") {
+              const v = document.createElement("video");
+              v.src = m.url;
+              v.autoplay = true;
+              v.loop = true;
+              v.muted = true;
+              v.playsInline = true;
+              v.className = "vd";
+              gallery.appendChild(v);
+            } else {
+              const img = document.createElement("img");
+              img.src = m.url;
+              img.alt = "photo";
+              img.loading = "lazy";
+              img.className = "ph";
+              gallery.appendChild(img);
+            }
+          }
+          card.appendChild(gallery);
+        } else if (Array.isArray(it.media_urls) && it.media_urls.length) {
+          const gallery = document.createElement("div");
+          gallery.className = "gallery";
+          for (const url of it.media_urls.slice(0, 4)) {
             const img = document.createElement("img");
-            img.src = m.url;
+            img.src = url;
             img.alt = "photo";
             img.loading = "lazy";
             img.className = "ph";
             gallery.appendChild(img);
           }
+          card.appendChild(gallery);
         }
-        card.appendChild(gallery);
-      } else if (Array.isArray(it.media_urls) && it.media_urls.length) {
-        const gallery = document.createElement("div");
-        gallery.className = "gallery";
-        for (const url of it.media_urls.slice(0, 4)) {
-          const img = document.createElement("img");
-          img.src = url;
-          img.alt = "photo";
-          img.loading = "lazy";
-          img.className = "ph";
-          gallery.appendChild(img);
-        }
-        card.appendChild(gallery);
+        const cc = document.createElement("article");
+        cc.className = "comment-card";
+        cc.id = `comment-${it.id}`;
+        const heading = title ? `<span class="num">${String(displayIndex + 1)}.</span> Comment: ${escapeHtml(title)}` : `<span class="num">${String(displayIndex + 1)}.</span> Comment`;
+        const content = it.ai_comment ? escapeHtml(it.ai_comment) : "Комментарий отсутствует";
+        cc.innerHTML = `<div class="title">${heading} <button class="action fix-comment" data-id="${it.id}">Fix</button> <button class="action del-comment" data-id="${it.id}">Delete</button></div><div class="content">${content}</div>`;
+        row.appendChild(card);
+        row.appendChild(cc);
+        return row;
       }
-      // Right column: AI comment
-      const cc = document.createElement("article");
-      cc.className = "comment-card";
-      cc.id = `comment-${it.id}`;
-      const heading = title ? `<span class="num">${String(i + 1)}.</span> Comment: ${escapeHtml(title)}` : `<span class="num">${String(i + 1)}.</span> Comment`;
-      const content = it.ai_comment ? escapeHtml(it.ai_comment) : "Комментарий отсутствует";
-      cc.innerHTML = `<div class="title">${heading} <button class="action fix-comment" data-id="${it.id}">Fix</button> <button class="action del-comment" data-id="${it.id}">Delete</button></div><div class="content">${content}</div>`;
-      // add delete post button into header right
-      const right = card.querySelector(".meta .right");
-      if (right) {
-        const btn = document.createElement("button");
-        btn.className = "action danger del";
-        btn.dataset.id = String(it.id);
-        btn.textContent = "Delete";
-        right.appendChild(btn);
+      // Render main row
+      const mainRow = buildRow(items[mainIdx], mainIdx, false);
+      listEl.appendChild(mainRow);
+      rendered.add(mainIdx);
+      // If there is a child from previous index, render under main
+      if (childIdx >= 0 && childIdx !== mainIdx) {
+        const childRow = buildRow(items[childIdx], childIdx, true);
+        mainRow.insertAdjacentElement("afterend", childRow);
+        rendered.add(childIdx);
       }
-      row.appendChild(card);
-      row.appendChild(cc);
-      listEl.appendChild(row);
     }
     scheduleAutoRefresh();
   }

@@ -158,6 +158,19 @@ header button#clearBtn {
   align-items: start;
   margin-bottom: 10px;
 }
+.row.child {
+  margin-left: 24px;
+  border-left: 2px solid var(--border);
+  padding-left: 12px;
+  opacity: 0.96;
+}
+.row.child .meta .left .ch {
+  opacity: 0.85;
+}
+.row.child .meta .left .num::before {
+  content: "↳ ";
+  color: var(--muted);
+}
 main .card, .comment-card {
   border: 1px solid var(--border);
   background: var(--card);
