@@ -93,6 +93,19 @@ main .card, .comment-card {
 .comment-card .content {
   white-space: pre-wrap;
 }
+.action {
+  padding: 4px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+}
+.action.danger {
+  color: #ef4444;
+  border-color: #ef444433;
+}
 .card .meta {
   display: flex;
   justify-content: space-between;

@@ -200,7 +200,16 @@
       cc.id = `comment-${it.id}`;
       const heading = title ? `<span class="num">${String(i + 1)}.</span> Comment: ${escapeHtml(title)}` : `<span class="num">${String(i + 1)}.</span> Comment`;
       const content = it.ai_comment ? escapeHtml(it.ai_comment) : "Generating…";
-      cc.innerHTML = `<div class="title">${heading}</div><div class="content">${content}</div>`;
+      cc.innerHTML = `<div class="title">${heading} <button class="action del-comment" data-id="${it.id}">Delete comment</button></div><div class="content">${content}</div>`;
+      // add delete post button into header right
+      const right = card.querySelector(".meta .right");
+      if (right) {
+        const btn = document.createElement("button");
+        btn.className = "action danger del";
+        btn.dataset.id = String(it.id);
+        btn.textContent = "Delete";
+        right.appendChild(btn);
+      }
       row.appendChild(card);
       row.appendChild(cc);
       listEl.appendChild(row);
@@ -345,6 +354,66 @@
           genStatus.className = "status-badge error";
         }
       }
+    });
+  }
+  // Delegated handlers for delete actions
+  listEl.addEventListener("click", async (e) => {
+    const t = e.target;
+    if (!(t instanceof Element)) return;
+    if (t.classList.contains("del")) {
+      const id = Number(t.dataset.id || "0");
+      if (!id) return;
+      try {
+        await fetch(`/miniapp/api/posts`, {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message_ids: [id], delete_media: true }),
+        });
+        const row = t.closest(".row");
+        if (row) row.remove();
+        // remove from lastItems and renumber
+        lastItems = lastItems.filter((x) => x.id !== id);
+        renumberRows();
+      } catch (err) {
+        console.error(err);
+      }
+    }
+    if (t.classList.contains("del-comment")) {
+      const id = Number(t.dataset.id || "0");
+      if (!id) return;
+      try {
+        await fetch(`/miniapp/api/comments`, {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message_ids: [id] }),
+        });
+        const el = document.getElementById(`comment-${id}`);
+        if (el) {
+          const titleEl = el.querySelector(".title");
+          const contentEl = el.querySelector(".content");
+          if (contentEl) contentEl.textContent = "Generating…";
+          // also reset in lastItems
+          for (const it of lastItems) {
+            if (it.id === id) {
+              it.ai_comment = null;
+              break;
+            }
+          }
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+  });
+
+  function renumberRows() {
+    const rows = Array.from(document.querySelectorAll(".row"));
+    rows.forEach((row, idx) => {
+      const n = String(idx + 1) + ".";
+      const leftNum = row.querySelector(".meta .left .num");
+      if (leftNum) leftNum.textContent = n;
+      const rightNum = row.querySelector(".comment-card .title .num");
+      if (rightNum) rightNum.textContent = n;
     });
   }
   if (clearBtn) {

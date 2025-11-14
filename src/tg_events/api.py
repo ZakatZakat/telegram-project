@@ -225,6 +225,44 @@ async def delete_comments(req: DeleteCommentsRequest) -> dict[str, int]:
         await ses.commit()
     return {"deleted": int(deleted)}
 
+
+class DeletePostsRequest(BaseModel):
+    message_ids: List[int]
+    delete_media: Optional[bool] = True
+
+
+@app.delete("/miniapp/api/posts")
+async def delete_posts(req: DeletePostsRequest) -> dict[str, int]:
+    ids = list(dict.fromkeys(req.message_ids))
+    if not ids:
+        return {"deleted": 0}
+    media_deleted = 0
+    async with SessionLocal() as ses:
+        if req.delete_media:
+            rows = await ses.execute(select(MessageRaw.id, MessageRaw.attachments).where(MessageRaw.id.in_(ids)))
+            for _mid, atts in rows.all():
+                media = None
+                if isinstance(atts, dict):
+                    media = atts.get("media")
+                if isinstance(media, list) and media:
+                    for it in media:
+                        p = None
+                        if isinstance(it, dict):
+                            p = it.get("path")
+                        elif isinstance(it, str):
+                            p = it
+                        if p:
+                            try:
+                                f = Path(settings.media_root) / p
+                                if f.is_file():
+                                    f.unlink(missing_ok=True)
+                                    media_deleted += 1
+                            except Exception:
+                                pass
+        res = await ses.execute(delete(MessageRaw).where(MessageRaw.id.in_(ids)))
+        await ses.commit()
+        return {"deleted": int(res.rowcount or 0), "media_deleted": int(media_deleted)}
+
 # Serve static Mini App (mounted AFTER API routes so it doesn't shadow /miniapp/api/*)
 miniapp_dir = Path(__file__).parent / "miniapp_static"
 if miniapp_dir.exists():
