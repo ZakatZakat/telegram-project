@@ -22,6 +22,19 @@
     return new Promise((r) => setTimeout(r, ms));
   }
 
+  function hashToHue(s) {
+    let h = 0;
+    for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+    return h % 360;
+  }
+
+  function styleForUserTag(label) {
+    const h = hashToHue(label || "");
+    const color = `hsl(${h} 70% 55%)`;
+    const border = `hsla(${h}, 70%, 55%, 0.35)`;
+    return `color:${color};border-color:${border}`;
+  }
+
   function buildParams() {
     const params = new URLSearchParams();
     const selected = channelSelect.value ? channelSelect.value.trim() : "";
@@ -115,14 +128,25 @@
         const title = it.forward.from_name || it.forward.from_title || "";
         return u || title || (it.forward.from_type || "");
       })();
+      const fwdUsername = it.forward?.from_username ? `@${it.forward.from_username}` : (it.forward?.from_name || "");
+      // For header badge show ANY forward source label (channel or user)
+      const sourceLabel = fwdUsername || fwdSource || "";
+      const userBadge = sourceLabel
+        ? `<span class="badge user" style="${styleForUserTag(sourceLabel)}">${escapeHtml(sourceLabel)}</span>`
+        : "";
       const fwdHtml = fwdSource ? 
-        `<div class="fwd">Forwarded from ${escapeHtml(fwdSource)}</div>` : "";
+        `<div class="fwd"><span class="fwd-label">Forwarded from ${escapeHtml(fwdSource)}</span></div>` : "";
       const textHtml = `
         <div class="meta">
-          <span class="num">${String(i + 1)}.</span>
-          <span class="ch">${title}</span>
-          <span class="dt">${new Date(it.date).toLocaleString()}</span>
-          ${link}
+          <div class="left">
+            <span class="num">${String(i + 1)}.</span>
+            <span class="ch">${title}</span>
+          </div>
+          <div class="right">
+            <span class="dt">${new Date(it.date).toLocaleString()}</span>
+            ${link}
+            ${userBadge}
+          </div>
         </div>
         ${fwdHtml}
         <div class="text">${escapeHtml((it.text || "").slice(0, 800)).replace(/\\n/g, "<br/>")}</div>`;

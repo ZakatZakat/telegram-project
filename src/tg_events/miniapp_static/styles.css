@@ -95,10 +95,16 @@ main .card, .comment-card {
 }
 .card .meta {
   display: flex;
+  justify-content: space-between;
+  align-items: center;
   gap: 10px;
-  align-items: baseline;
   margin-bottom: 8px;
   color: var(--muted);
+}
+.meta .left, .meta .right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 .card .meta .ch {
   font-weight: 600;
@@ -116,6 +122,25 @@ main .card, .comment-card {
   margin: 4px 0 8px;
   color: var(--muted);
   font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.badge {
+  display: inline-block;
+  padding: 3px 8px;
+  margin-left: 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--fg);
+  font-size: 12px;
+  line-height: 1;
+}
+.badge.user {
+  /* Colors are set inline per-username; keep defaults for fallback */
+  border-color: #22c55e33;
+  color: #22c55e;
 }
 .card .text {
   white-space: normal;

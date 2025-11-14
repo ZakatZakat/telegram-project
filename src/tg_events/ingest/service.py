@@ -188,6 +188,10 @@ async def ingest_channels(
                                 forward_cache[cache_key] = info
                             f_title = info.get("title") if info else None
                             f_username = info.get("username") if info else None
+                    # Heuristic: hidden forward without from_id but with name like '@user'
+                    if f_type is None and f_username is None and isinstance(f_from_name, str) and f_from_name.startswith("@"):
+                        f_type = "user"
+                        f_username = f_from_name.lstrip("@")
                     # Telethon не всегда даёт username в fwd header; оставим только name/id/type
                     features = {
                         "forward": {
