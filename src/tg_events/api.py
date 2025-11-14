@@ -15,7 +15,7 @@ from tg_events.repositories.miniapp_queries import list_recent_messages, list_fo
 from tg_events.ingest.telethon_client import build_client, open_client
 from telethon.utils import get_display_name
 from telethon.tl.types import Channel as TlChannel, User as TlUser
-from tg_events.ai.commenter import comment_message
+from tg_events.ai.commenter import comment_message, get_prompt_template, set_prompt_template
 from sqlalchemy import delete, select
 from tg_events.models import AiComment, Channel, MessageRaw, Event
 
@@ -23,6 +23,8 @@ from tg_events.models import AiComment, Channel, MessageRaw, Event
 settings = get_settings()
 app = FastAPI(title=settings.app_name)
 logger = logging.getLogger("tg_events.api")
+cancel_generation: bool = False
+current_generation_task: asyncio.Task | None = None
 
 
 @app.get("/health")
@@ -79,6 +81,25 @@ async def miniapp_forwards(
         session, limit=limit, channel_username=username, channel_tg_id=channel_id
     )
     return ForwardsResponse(items=items)
+
+
+class PromptResponse(BaseModel):
+    template: str
+
+
+class PromptUpdate(BaseModel):
+    template: str
+
+
+@app.get("/miniapp/api/prompt", response_model=PromptResponse)
+def get_prompt() -> PromptResponse:
+    return PromptResponse(template=get_prompt_template())
+
+
+@app.put("/miniapp/api/prompt", response_model=PromptResponse)
+def update_prompt(req: PromptUpdate) -> PromptResponse:
+    set_prompt_template(req.template)
+    return PromptResponse(template=get_prompt_template())
 
 
 # Serve media files
@@ -154,7 +175,7 @@ class GenerateCommentsRequest(BaseModel):
 
 
 @app.post("/miniapp/api/comments/generate")
-async def generate_comments(req: GenerateCommentsRequest, tasks: BackgroundTasks) -> dict[str, int]:
+async def generate_comments(req: GenerateCommentsRequest) -> dict[str, int]:
     # Process in background to keep UI responsive
     s = get_settings()
     # cap batch size to avoid overload
@@ -186,8 +207,14 @@ async def generate_comments(req: GenerateCommentsRequest, tasks: BackgroundTasks
             ids = list(dict.fromkeys(rows))
 
     async def _run() -> None:
+        global cancel_generation
         # Sequential processing with ~1s delay between items
+        # Reset cancel flag at the beginning of a new run
+        cancel_generation = False
         for mid in ids:
+            if cancel_generation:
+                logger.info("generation cancelled by user")
+                break
             async with SessionLocal() as ses:
                 try:
                     await comment_message(ses, mid, model=req.model or s.ai_model)
@@ -195,12 +222,31 @@ async def generate_comments(req: GenerateCommentsRequest, tasks: BackgroundTasks
                     logger.exception("generate_comment failed", extra={"message_id": mid, "error": str(e)})
             await asyncio.sleep(1.0)
 
-    # Schedule the async gather via background tasks
-    def _start() -> None:
-        asyncio.run(_run())
-
-    tasks.add_task(_start)
+    # Start as a cancellable asyncio task (not BackgroundTasks)
+    global current_generation_task
+    try:
+        if current_generation_task and not current_generation_task.done():
+            current_generation_task.cancel()
+    except Exception:
+        pass
+    current_generation_task = asyncio.create_task(_run())
     return {"accepted": len(ids)}
+
+
+class StopResponse(BaseModel):
+    status: str
+
+
+@app.post("/miniapp/api/comments/stop", response_model=StopResponse)
+def stop_generation() -> StopResponse:
+    global cancel_generation, current_generation_task
+    cancel_generation = True
+    try:
+        if current_generation_task and not current_generation_task.done():
+            current_generation_task.cancel()
+    except Exception:
+        pass
+    return StopResponse(status="stopping")
 
 
 class DeleteCommentsRequest(BaseModel):

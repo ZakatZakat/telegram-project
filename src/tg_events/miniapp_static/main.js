@@ -228,6 +228,18 @@
             <option value="">All forwards</option>
           </select>
           <button id="clearFwdFilter" class="action">Clear</button>
+          <button id="editPromptBtn" class="action">Edit prompt</button>
+        </div>
+      </div>
+      <div id="promptModal" class="modal">
+        <div class="panel">
+          <h3>Edit comment prompt</h3>
+          <div class="subtitle" style="margin-bottom:6px">Шаблон поддерживает плейсхолдер {post}</div>
+          <textarea id="promptText"></textarea>
+          <div class="actions">
+            <button id="promptCancel" class="action">Cancel</button>
+            <button id="promptSave" class="action">Save</button>
+          </div>
         </div>
       </div>
     `;
@@ -236,8 +248,22 @@
     const holder = document.getElementById("pickerControls");
     const bar = document.getElementById("controlsBar");
     if (holder && bar) holder.appendChild(bar);
+    // ensure Stop button exists in controls bar (next to Generate)
+    if (bar && !document.getElementById("stopGenBtn")) {
+      const btn = document.createElement("button");
+      btn.id = "stopGenBtn";
+      btn.className = "action hidden";
+      btn.textContent = "Stop";
+      bar.appendChild(btn);
+    }
     const clearBtnF = document.getElementById("clearFwdFilter");
     const fwdSel = document.getElementById("fwdSelect");
+    const stopBtn = document.getElementById("stopGenBtn");
+    const editPromptBtn = document.getElementById("editPromptBtn");
+    const modal = document.getElementById("promptModal");
+    const promptText = document.getElementById("promptText");
+    const promptCancel = document.getElementById("promptCancel");
+    const promptSave = document.getElementById("promptSave");
     async function loadForwardSenders() {
       const params = new URLSearchParams();
       const selected = channelSelect.value ? channelSelect.value.trim() : "";
@@ -258,6 +284,30 @@
     loadForwardSenders().catch(() => {});
     if (fwdSel) fwdSel.addEventListener("change", () => { if (pickerEl) pickerEl.classList.add("hidden"); listEl.classList.remove("hidden"); load(); });
     if (clearBtnF) clearBtnF.addEventListener("click", () => { if (fwdSel && "value" in fwdSel) fwdSel.value = ""; if (pickerEl) pickerEl.classList.add("hidden"); listEl.classList.remove("hidden"); load(); });
+    if (editPromptBtn && modal && promptText && promptCancel && promptSave) {
+      editPromptBtn.addEventListener("click", async () => {
+        try {
+          const r = await fetch(`/miniapp/api/prompt`);
+          const d = await r.json();
+          promptText.value = d.template || "";
+        } catch {}
+        modal.style.display = "flex";
+      });
+      promptCancel.addEventListener("click", () => { modal.style.display = "none"; });
+      promptSave.addEventListener("click", async () => {
+        try {
+          const tmpl = promptText.value || "";
+          await fetch(`/miniapp/api/prompt`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ template: tmpl }),
+          });
+        } catch {}
+        modal.style.display = "none";
+      });
+      modal.addEventListener("click", (e) => { if (e.target === modal) modal.style.display = "none"; });
+      document.addEventListener("keydown", (e) => { if (e.key === "Escape") modal.style.display = "none"; });
+    }
     channelSelect.addEventListener("change", () => loadForwardSenders().catch(() => {}));
   }
 
@@ -336,6 +386,9 @@
       genBtn.disabled = true;
       const oldLabel = genBtn.textContent;
       genBtn.textContent = `Generating ${missing.length}…`;
+      // show Stop button if present
+      const stopBtn = document.getElementById("stopGenBtn");
+      if (stopBtn) { stopBtn.disabled = false; stopBtn.classList.remove("hidden"); }
       // single request: backend processes sequentially with 1s delay per item
       const selVal = channelSelect.value ? channelSelect.value.trim() : "";
       const u2 = userFilter.value.trim();
@@ -410,6 +463,22 @@
           genStatus.className = "status-badge error";
         }
       }
+      if (stopBtn) { stopBtn.disabled = true; }
+    });
+  }
+  // Stop generation button in controls bar
+  const stopGenBtn = document.getElementById("stopGenBtn");
+  if (stopGenBtn) {
+    stopGenBtn.addEventListener("click", async () => {
+      stopGenBtn.disabled = true;
+      try {
+        await fetch(`/miniapp/api/comments/stop`, { method: "POST" });
+        if (genStatus) {
+          genStatus.textContent = "Stopping…";
+          genStatus.className = "status-badge progress";
+          genStatus.classList.remove("hidden");
+        }
+      } catch {}
     });
   }
   // Delegated handlers for delete actions

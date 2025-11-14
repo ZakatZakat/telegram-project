@@ -13,6 +13,25 @@ from tg_events.models import AiComment, MessageRaw
 
 _sem = asyncio.Semaphore(get_settings().ai_max_concurrency)
 
+# Default prompt template and runtime-overridable template.
+# Use {post} placeholder for the message text.
+DEFAULT_PROMPT_TEMPLATE = (
+    "You are an assistant that briefly comments on a Telegram post.\n"
+    "Return 1-2 sentences: concise, factual, no emojis, no hashtags.\n"
+    "If the text is not in the target language, still summarize concisely.\n\n"
+    "Post:\n{post}"
+)
+_prompt_template: str | None = None
+
+
+def get_prompt_template() -> str:
+    return _prompt_template or DEFAULT_PROMPT_TEMPLATE
+
+
+def set_prompt_template(template: str) -> None:
+    global _prompt_template
+    _prompt_template = template.strip() if template is not None else None
+
 
 def _truncate_text(text: str, max_chars: int) -> str:
     if len(text) <= max_chars:
@@ -30,12 +49,8 @@ def _build_client() -> OpenAI:
 def generate_comment_sync(text: str, *, model: Optional[str] = None, max_chars: int = 800) -> str:
     s = get_settings()
     client = _build_client()
-    prompt = (
-        "You are an assistant that briefly comments on a Telegram post.\n"
-        "Return 1-2 sentences: concise, factual, no emojis, no hashtags.\n"
-        "If the text is not in the target language, still summarize concisely.\n\n"
-        f"Post:\n{text}"
-    )
+    template = get_prompt_template()
+    prompt = template.replace("{post}", text)
     m = model or s.ai_model
     resp = client.chat.completions.create(
         model=m,
