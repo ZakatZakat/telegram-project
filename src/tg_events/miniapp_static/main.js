@@ -51,6 +51,9 @@
     } else if (u) {
       params.set("username", u.startsWith("@") ? u.slice(1) : u);
     }
+    const fwdEl = document.getElementById("fwdSelect") || document.getElementById("fwdFilter");
+    const fwd = fwdEl && "value" in fwdEl ? (fwdEl.value || "") : "";
+    if (fwd) params.set("fwd_username", fwd.startsWith("@") ? fwd.slice(1) : fwd);
     params.set("limit", "500");
     return params;
   }
@@ -218,12 +221,44 @@
         <div class="subtitle" style="margin:6px 0 10px">Choose a dialog to view posts</div>
         <div id="pickerControls"></div>
       </div>
+      <div class="tile tool-card">
+        <div class="title"><span>Tools</span></div>
+        <div class="toolbar">
+          <select id="fwdSelect" style="flex:1; min-width:240px; padding:8px 10px; border:1px solid var(--border); border-radius:8px; background:var(--card); color: var(--fg);">
+            <option value="">All forwards</option>
+          </select>
+          <button id="clearFwdFilter" class="action">Clear</button>
+        </div>
+      </div>
     `;
     pickerEl.classList.remove("hidden");
     listEl.classList.add("hidden");
     const holder = document.getElementById("pickerControls");
     const bar = document.getElementById("controlsBar");
     if (holder && bar) holder.appendChild(bar);
+    const clearBtnF = document.getElementById("clearFwdFilter");
+    const fwdSel = document.getElementById("fwdSelect");
+    async function loadForwardSenders() {
+      const params = new URLSearchParams();
+      const selected = channelSelect.value ? channelSelect.value.trim() : "";
+      if (selected) {
+        if (selected.startsWith("@")) params.set("username", selected.slice(1));
+        else params.set("channel_id", selected);
+      }
+      const r = await fetch(`/miniapp/api/forwards?${params.toString()}`);
+      const d = await r.json();
+      const items = d.items || [];
+      if (fwdSel) {
+        fwdSel.innerHTML = `<option value="">All forwards</option>` + items.map((it) => {
+          const v = it.username ? `@${it.username}` : "";
+          return v ? `<option value="${v}">${v}</option>` : "";
+        }).join("");
+      }
+    }
+    loadForwardSenders().catch(() => {});
+    if (fwdSel) fwdSel.addEventListener("change", () => { if (pickerEl) pickerEl.classList.add("hidden"); listEl.classList.remove("hidden"); load(); });
+    if (clearBtnF) clearBtnF.addEventListener("click", () => { if (fwdSel && "value" in fwdSel) fwdSel.value = ""; if (pickerEl) pickerEl.classList.add("hidden"); listEl.classList.remove("hidden"); load(); });
+    channelSelect.addEventListener("change", () => loadForwardSenders().catch(() => {}));
   }
 
   async function loadChannels() {

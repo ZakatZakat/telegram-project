@@ -11,7 +11,7 @@ from starlette.staticfiles import StaticFiles
 from tg_events.db import SessionLocal, get_session
 from tg_events.config import get_settings
 from tg_events.ingest.service import ingest_channels
-from tg_events.repositories.miniapp_queries import list_recent_messages
+from tg_events.repositories.miniapp_queries import list_recent_messages, list_forward_usernames
 from tg_events.ingest.telethon_client import build_client, open_client
 from telethon.utils import get_display_name
 from telethon.tl.types import Channel as TlChannel, User as TlUser
@@ -58,11 +58,27 @@ async def miniapp_posts(
     limit: int = 500,
     username: Optional[str] = None,
     channel_id: Optional[int] = None,
+    fwd_username: Optional[str] = None,
 ) -> MiniappPostsResponse:
     items = await list_recent_messages(
-        session, limit=limit, channel_username=username, channel_tg_id=channel_id
+        session, limit=limit, channel_username=username, channel_tg_id=channel_id, fwd_username=fwd_username
     )
     return MiniappPostsResponse(items=items)
+class ForwardsResponse(BaseModel):
+    items: List[dict]
+
+
+@app.get("/miniapp/api/forwards", response_model=ForwardsResponse)
+async def miniapp_forwards(
+    session: AsyncSession = Depends(get_session),
+    limit: int = 200,
+    username: Optional[str] = None,
+    channel_id: Optional[int] = None,
+) -> ForwardsResponse:
+    items = await list_forward_usernames(
+        session, limit=limit, channel_username=username, channel_tg_id=channel_id
+    )
+    return ForwardsResponse(items=items)
 
 
 # Serve media files

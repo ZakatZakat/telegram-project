@@ -64,6 +64,15 @@ html, body {
   color: var(--muted);
   font-size: 12px;
 }
+.tile.tool-card {
+  width: 100%;
+  max-width: 520px;
+}
+.tile .toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
 header {
   display: none;
 }

@@ -25,6 +25,7 @@ async def list_recent_messages(
     limit: int = 100,
     channel_username: Optional[str] = None,
     channel_tg_id: Optional[int] = None,
+    fwd_username: Optional[str] = None,
 ) -> List[MiniappPost]:
     settings = get_settings()
     stmt: Select[Any] = select(
@@ -45,6 +46,11 @@ async def list_recent_messages(
         ),
         isouter=True,
     ).order_by(desc(MessageRaw.date)).limit(limit)
+    if fwd_username:
+        # filter by forward username (if features->forward->from_username matches)
+        stmt = stmt.where(
+            MessageRaw.features["forward"].op("->>")("from_username") == (fwd_username.lstrip("@"))
+        )
     if channel_username:
         stmt = stmt.where(Channel.username == channel_username)
     if channel_tg_id is not None:
@@ -104,4 +110,31 @@ async def list_recent_messages(
         items.append(item)
     return items
 
+
+class ForwardUser(TypedDict, total=False):
+    username: str
+
+
+async def list_forward_usernames(
+    session: AsyncSession,
+    *,
+    limit: int = 200,
+    channel_username: Optional[str] = None,
+    channel_tg_id: Optional[int] = None,
+) -> List[ForwardUser]:
+    sel = MessageRaw.features["forward"].op("->>")("from_username").label("username")
+    stmt: Select[Any] = select(sel).join(Channel, Channel.id == MessageRaw.channel_id)
+    if channel_username:
+        stmt = stmt.where(Channel.username == channel_username)
+    if channel_tg_id is not None:
+        stmt = stmt.where(Channel.tg_id == channel_tg_id)
+    # only non-empty usernames
+    stmt = stmt.where(sel.isnot(None)).distinct().limit(limit)
+    rows = (await session.execute(stmt)).all()
+    out: List[ForwardUser] = []
+    for (uname,) in rows:
+        if not uname:
+            continue
+        out.append({"username": uname})
+    return out
 
