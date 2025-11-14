@@ -17,7 +17,7 @@ from telethon.utils import get_display_name
 from telethon.tl.types import Channel as TlChannel, User as TlUser
 from tg_events.ai.commenter import comment_message
 from sqlalchemy import delete, select
-from tg_events.models import AiComment, Channel, MessageRaw
+from tg_events.models import AiComment, Channel, MessageRaw, Event
 
 
 settings = get_settings()
@@ -238,6 +238,8 @@ async def delete_posts(req: DeletePostsRequest) -> dict[str, int]:
         return {"deleted": 0}
     media_deleted = 0
     async with SessionLocal() as ses:
+        # delete dependent events first to avoid FK restriction
+        await ses.execute(delete(Event).where(Event.source_message_id.in_(ids)))
         if req.delete_media:
             rows = await ses.execute(select(MessageRaw.id, MessageRaw.attachments).where(MessageRaw.id.in_(ids)))
             for _mid, atts in rows.all():
@@ -262,6 +264,35 @@ async def delete_posts(req: DeletePostsRequest) -> dict[str, int]:
         res = await ses.execute(delete(MessageRaw).where(MessageRaw.id.in_(ids)))
         await ses.commit()
         return {"deleted": int(res.rowcount or 0), "media_deleted": int(media_deleted)}
+
+
+class UpdateCommentRequest(BaseModel):
+    message_id: int
+    text: str
+    model: Optional[str] = None
+
+
+@app.put("/miniapp/api/comments")
+async def update_comment(req: UpdateCommentRequest) -> dict[str, int]:
+    s = get_settings()
+    mdl = req.model or s.ai_model
+    async with SessionLocal() as ses:
+        # try update existing
+        from sqlalchemy import update as sa_update
+        res = await ses.execute(
+            sa_update(AiComment)
+            .where(AiComment.message_id == req.message_id, AiComment.model == mdl)
+            .values(comment_text=req.text)
+        )
+        updated = res.rowcount or 0
+        if not updated:
+            # create new if absent
+            rec = AiComment(message_id=req.message_id, model=mdl, comment_text=req.text)
+            ses.add(rec)
+            await ses.commit()
+            return {"updated": 1}
+        await ses.commit()
+        return {"updated": int(updated)}
 
 # Serve static Mini App (mounted AFTER API routes so it doesn't shadow /miniapp/api/*)
 miniapp_dir = Path(__file__).parent / "miniapp_static"

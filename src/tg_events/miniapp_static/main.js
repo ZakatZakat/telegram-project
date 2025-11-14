@@ -200,7 +200,7 @@
       cc.id = `comment-${it.id}`;
       const heading = title ? `<span class="num">${String(i + 1)}.</span> Comment: ${escapeHtml(title)}` : `<span class="num">${String(i + 1)}.</span> Comment`;
       const content = it.ai_comment ? escapeHtml(it.ai_comment) : "Generating…";
-      cc.innerHTML = `<div class="title">${heading} <button class="action del-comment" data-id="${it.id}">Delete comment</button></div><div class="content">${content}</div>`;
+      cc.innerHTML = `<div class="title">${heading} <button class="action fix-comment" data-id="${it.id}">Fix</button> <button class="action del-comment" data-id="${it.id}">Delete</button></div><div class="content">${content}</div>`;
       // add delete post button into header right
       const right = card.querySelector(".meta .right");
       if (right) {
@@ -364,11 +364,15 @@
       const id = Number(t.dataset.id || "0");
       if (!id) return;
       try {
-        await fetch(`/miniapp/api/posts`, {
+        const r = await fetch(`/miniapp/api/posts`, {
           method: "DELETE",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ message_ids: [id], delete_media: true }),
         });
+        if (!r.ok) {
+          console.error("Delete post failed", await r.text());
+          return;
+        }
         const row = t.closest(".row");
         if (row) row.remove();
         // remove from lastItems and renumber
@@ -382,11 +386,15 @@
       const id = Number(t.dataset.id || "0");
       if (!id) return;
       try {
-        await fetch(`/miniapp/api/comments`, {
+        const r = await fetch(`/miniapp/api/comments`, {
           method: "DELETE",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ message_ids: [id] }),
         });
+        if (!r.ok) {
+          console.error("Delete comment failed", await r.text());
+          return;
+        }
         const el = document.getElementById(`comment-${id}`);
         if (el) {
           const titleEl = el.querySelector(".title");
@@ -403,6 +411,62 @@
       } catch (err) {
         console.error(err);
       }
+    }
+    if (t.classList.contains("fix-comment")) {
+      const id = Number(t.dataset.id || "0");
+      if (!id) return;
+      const el = document.getElementById(`comment-${id}`);
+      if (!el) return;
+      const contentEl = el.querySelector(".content");
+      if (!contentEl) return;
+      // if already editing, ignore
+      if (el.querySelector("textarea.edit")) return;
+      const orig = contentEl.textContent || "";
+      const ta = document.createElement("textarea");
+      ta.className = "edit";
+      ta.style.width = "100%";
+      ta.style.minHeight = "80px";
+      ta.value = orig;
+      const save = document.createElement("button");
+      save.className = "action";
+      save.textContent = "Save";
+      const cancel = document.createElement("button");
+      cancel.className = "action";
+      cancel.textContent = "Cancel";
+      const actions = document.createElement("div");
+      actions.style.marginTop = "6px";
+      actions.appendChild(save);
+      actions.appendChild(cancel);
+      contentEl.replaceWith(ta);
+      el.appendChild(actions);
+      cancel.addEventListener("click", () => {
+        ta.replaceWith(contentEl);
+        actions.remove();
+      });
+      save.addEventListener("click", async () => {
+        const text = ta.value.trim();
+        try {
+          await fetch(`/miniapp/api/comments`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ message_id: id, text }),
+          });
+          // update UI
+          const newDiv = document.createElement("div");
+          newDiv.className = "content";
+          newDiv.textContent = text || " ";
+          ta.replaceWith(newDiv);
+          actions.remove();
+          for (const it of lastItems) {
+            if (it.id === id) {
+              it.ai_comment = text;
+              break;
+            }
+          }
+        } catch (err) {
+          console.error(err);
+        }
+      });
     }
   });
 
