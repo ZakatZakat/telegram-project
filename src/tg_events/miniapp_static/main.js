@@ -212,47 +212,18 @@
   function renderPicker(items) {
     channelsCache = items || [];
     if (!pickerEl) return;
-    const options = items
-      .map((ch) => {
-        const label = ch.username ? `@${ch.username}` : ch.name;
-        const value = ch.username ? `@${ch.username}` : String(ch.id);
-        return `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`;
-      })
-      .join("");
     pickerEl.innerHTML = `
       <div class="tile picker-card">
         <div class="title"><span>Select a channel or user</span></div>
         <div class="subtitle" style="margin:6px 0 10px">Choose a dialog to view posts</div>
-        <select id="pickerSelect" style="width:100%; padding:10px; border-radius:8px; border:1px solid var(--border); background: var(--card); color: var(--fg);">
-          <option value="">-- select --</option>
-          ${options}
-        </select>
-        <div style="margin-top:10px; display:flex; gap:8px; justify-content:flex-end">
-          <button id="pickerOpen" class="action">Open</button>
-        </div>
+        <div id="pickerControls"></div>
       </div>
     `;
     pickerEl.classList.remove("hidden");
     listEl.classList.add("hidden");
-    const sel = document.getElementById("pickerSelect");
-    const btn = document.getElementById("pickerOpen");
-    function openSelected() {
-      const val = sel && "value" in sel ? sel.value : "";
-      if (!val) return;
-      const found = Array.from(channelSelect.options).some((o) => o.value === val);
-      if (!found) {
-        const opt = document.createElement("option");
-        opt.value = val;
-        opt.textContent = val;
-        channelSelect.appendChild(opt);
-      }
-      channelSelect.value = val;
-      if (pickerEl) pickerEl.classList.add("hidden");
-      listEl.classList.remove("hidden");
-      load();
-    }
-    if (btn) btn.addEventListener("click", openSelected);
-    if (sel) sel.addEventListener("change", openSelected);
+    const holder = document.getElementById("pickerControls");
+    const bar = document.getElementById("controlsBar");
+    if (holder && bar) holder.appendChild(bar);
   }
 
   async function loadChannels() {
@@ -541,10 +512,6 @@
       } else if (u) {
         scope.username = u.startsWith("@") ? u.slice(1) : u;
       }
-      const confirmText = scope.username || scope.channel_id
-        ? "Delete comments only for the selected channel/user?"
-        : "Delete ALL generated comments?";
-      if (!confirm(confirmText)) return;
       try {
         await fetch(`/miniapp/api/comments`, {
           method: "DELETE",

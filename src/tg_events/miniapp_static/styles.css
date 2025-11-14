@@ -65,11 +65,7 @@ html, body {
   font-size: 12px;
 }
 header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 12px;
+  display: none;
 }
 header h1 {
   margin: 0;
@@ -214,6 +210,13 @@ main .card, .comment-card {
   border-radius: 8px;
   border: 1px solid var(--border);
   background: #000;
+}
+.picker-card #controlsBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 6px;
 }
 
 @media (max-width: 900px) {
