@@ -17,6 +17,7 @@
   const clearBtn = document.getElementById("clearBtn");
   const pickerEl = document.getElementById("picker");
   const backBtn = document.getElementById("backBtn");
+  const topicsEl = document.getElementById("topics");
   let lastItems = [];
   let autoTimer = null;
   let channelsCache = [];
@@ -94,6 +95,92 @@
     }, 2000);
   }
 
+  function loadTopicsFromStorage() {
+    try { return JSON.parse(localStorage.getItem("topics_v1") || "{}"); } catch { return {}; }
+  }
+  function saveTopicsToStorage(data) {
+    localStorage.setItem("topics_v1", JSON.stringify(data));
+  }
+  function renderTopicsSidebar() {
+    if (!topicsEl) return;
+    const data = loadTopicsFromStorage();
+    topicsEl.innerHTML = `
+      <h3>Topics</h3>
+      <div style="display:flex; gap:6px; margin-bottom:8px">
+        <input id="newTopic" placeholder="Add topic" style="flex:1; padding:6px 8px; border:1px solid var(--border); border-radius:8px; background:var(--card); color:var(--fg)"/>
+        <button id="addTopicBtn" class="action">Add</button>
+      </div>
+      <div id="topicsList"></div>
+    `;
+    const list = topicsEl.querySelector("#topicsList");
+    const keys = Object.keys(data);
+    if (keys.length === 0) list.innerHTML = `<div class="subtitle">Drag posts here</div>`;
+    keys.forEach((name) => {
+      const t = document.createElement("div");
+      t.className = "topic";
+      t.innerHTML = `<header><span>${escapeHtml(name)}</span><button class="action" data-rm="${escapeHtml(name)}">Remove</button></header><div class="bucket" data-topic="${escapeHtml(name)}"></div>`;
+      list.appendChild(t);
+      const bucket = t.querySelector(".bucket");
+      // fill minis
+      const ids = Array.isArray(data[name]) ? data[name] : [];
+      for (const id of ids) {
+        const mini = buildMiniCard(id);
+        if (mini) bucket.appendChild(mini);
+      }
+      // dnd events
+      bucket.addEventListener("dragover", (e) => { e.preventDefault(); bucket.classList.add("drop-hover"); });
+      bucket.addEventListener("dragleave", () => bucket.classList.remove("drop-hover"));
+      bucket.addEventListener("drop", (e) => {
+        e.preventDefault(); bucket.classList.remove("drop-hover");
+        const idStr = e.dataTransfer.getData("text/plain");
+        const id = Number(idStr || "0"); if (!id) return;
+        const c = document.getElementById(`comment-${id}`);
+        const hasComment = !!(c && c.querySelector(".content") && c.querySelector(".content").textContent && c.querySelector(".content").textContent !== "Комментарий отсутствует");
+        // allow only posts with comments as per requirement
+        if (!hasComment) return;
+        const current = loadTopicsFromStorage();
+        current[name] = current[name] || [];
+        if (!current[name].includes(id)) current[name].push(id);
+        saveTopicsToStorage(current);
+        const mini = buildMiniCard(id);
+        if (mini) bucket.appendChild(mini);
+      });
+      // remove topic
+      t.querySelector("button[data-rm]").addEventListener("click", () => {
+        const current = loadTopicsFromStorage();
+        delete current[name];
+        saveTopicsToStorage(current);
+        renderTopicsSidebar();
+      });
+    });
+    const addBtn = topicsEl.querySelector("#addTopicBtn");
+    const inp = topicsEl.querySelector("#newTopic");
+    if (addBtn && inp) {
+      const add = () => {
+        const name = (inp.value || "").trim(); if (!name) return;
+        const current = loadTopicsFromStorage();
+        if (!current[name]) current[name] = [];
+        saveTopicsToStorage(current);
+        inp.value = ""; renderTopicsSidebar();
+      };
+      addBtn.addEventListener("click", add);
+      inp.addEventListener("keydown", (e) => { if (e.key === "Enter") add(); });
+    }
+  }
+  function buildMiniCard(id) {
+    // find in lastItems
+    const it = lastItems.find((x) => x.id === id);
+    const c = document.getElementById(`comment-${id}`);
+    const cm = c && c.querySelector(".content") ? c.querySelector(".content").textContent || "" : "";
+    if (!it) return null;
+    const el = document.createElement("div");
+    el.className = "mini";
+    const title = it.channel_title || it.channel_username || "Channel";
+    const text = (it.text || "").split("\n")[0].slice(0, 140);
+    el.innerHTML = `<div class="tx"><strong>${escapeHtml(title)}</strong>: ${escapeHtml(text)}</div>${cm ? `<div class="cm">${escapeHtml(cm.slice(0, 160))}</div>` : ""}`;
+    return el;
+  }
+
   async function load() {
     if (pickerEl) pickerEl.classList.add("hidden");
     listEl.classList.remove("hidden");
@@ -112,6 +199,9 @@
       if (rendered.has(i)) continue;
       const curr = items[i];
       const isUp = typeof curr.text === "string" && curr.text.trim().startsWith("👆");
+      // Make draggable
+      // Do not allow dragging child rows themselves; drag the main card only
+      const dragAllowed = !isUp;
       // If current is an 'up' comment and the next item exists and is NOT an 'up' comment,
       // skip now; it will be rendered as a child of the next main post.
       if (isUp && i + 1 < items.length) {
@@ -122,21 +212,25 @@
       let mainIdx = i;
       let childIdx = -1;
       if (!isUp) {
-        // check if previous is an up-comment
         if (i - 1 >= 0) {
           const prev = items[i - 1];
           const prevIsUp = typeof prev.text === "string" && prev.text.trim().startsWith("👆");
           if (prevIsUp && !rendered.has(i - 1)) childIdx = i - 1;
         }
       } else {
-        // current is up and either last or next is also up (no main next) -> render standalone as child-styled
         childIdx = i;
-        mainIdx = i; // fallback (no true main), render as normal row but with child style
+        mainIdx = i;
       }
-      // Helper to build a row
       function buildRow(it, displayIndex, asChild) {
         const row = document.createElement("div");
         row.className = asChild ? "row child" : "row";
+        if (!asChild) {
+          row.setAttribute("draggable", "true");
+          row.dataset.id = String(it.id);
+          row.addEventListener("dragstart", (e) => {
+            e.dataTransfer.setData("text/plain", String(it.id));
+          });
+        }
         const card = document.createElement("article");
         card.className = "card";
         const title = it.channel_title || it.channel_username || "Channel";
@@ -226,7 +320,6 @@
       const mainRow = buildRow(items[mainIdx], mainIdx, false);
       listEl.appendChild(mainRow);
       rendered.add(mainIdx);
-      // If there is a child from previous index, render under main
       if (childIdx >= 0 && childIdx !== mainIdx) {
         const childRow = buildRow(items[childIdx], childIdx, true);
         mainRow.insertAdjacentElement("afterend", childRow);
@@ -234,6 +327,7 @@
       }
     }
     scheduleAutoRefresh();
+    renderTopicsSidebar();
   }
 
   function renderPicker(items) {
