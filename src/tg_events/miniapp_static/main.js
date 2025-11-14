@@ -15,8 +15,11 @@
   const genCount = document.getElementById("genCount");
   const genStatus = document.getElementById("genStatus");
   const clearBtn = document.getElementById("clearBtn");
+  const pickerEl = document.getElementById("picker");
+  const backBtn = document.getElementById("backBtn");
   let lastItems = [];
   let autoTimer = null;
+  let channelsCache = [];
 
   function sleep(ms) {
     return new Promise((r) => setTimeout(r, ms));
@@ -89,21 +92,10 @@
   }
 
   async function load() {
+    if (pickerEl) pickerEl.classList.add("hidden");
+    listEl.classList.remove("hidden");
     listEl.innerHTML = "Loading...";
-    const params = new URLSearchParams();
-    const selected = channelSelect.value ? channelSelect.value.trim() : "";
-    const u = userFilter.value.trim();
-    if (selected) {
-      if (selected.startsWith("@")) {
-        params.set("username", selected.slice(1));
-      } else {
-        params.set("channel_id", selected);
-      }
-    } else if (u) {
-      params.set("username", u.startsWith("@") ? u.slice(1) : u);
-    }
-    params.set("limit", "500");
-    const res = await fetch(`/miniapp/api/posts?${params.toString()}`);
+    const res = await fetch(`/miniapp/api/posts?${buildParams().toString()}`);
     const data = await res.json();
     const items = data.items || [];
     lastItems = items;
@@ -217,6 +209,52 @@
     scheduleAutoRefresh();
   }
 
+  function renderPicker(items) {
+    channelsCache = items || [];
+    if (!pickerEl) return;
+    const options = items
+      .map((ch) => {
+        const label = ch.username ? `@${ch.username}` : ch.name;
+        const value = ch.username ? `@${ch.username}` : String(ch.id);
+        return `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`;
+      })
+      .join("");
+    pickerEl.innerHTML = `
+      <div class="tile picker-card">
+        <div class="title"><span>Select a channel or user</span></div>
+        <div class="subtitle" style="margin:6px 0 10px">Choose a dialog to view posts</div>
+        <select id="pickerSelect" style="width:100%; padding:10px; border-radius:8px; border:1px solid var(--border); background: var(--card); color: var(--fg);">
+          <option value="">-- select --</option>
+          ${options}
+        </select>
+        <div style="margin-top:10px; display:flex; gap:8px; justify-content:flex-end">
+          <button id="pickerOpen" class="action">Open</button>
+        </div>
+      </div>
+    `;
+    pickerEl.classList.remove("hidden");
+    listEl.classList.add("hidden");
+    const sel = document.getElementById("pickerSelect");
+    const btn = document.getElementById("pickerOpen");
+    function openSelected() {
+      const val = sel && "value" in sel ? sel.value : "";
+      if (!val) return;
+      const found = Array.from(channelSelect.options).some((o) => o.value === val);
+      if (!found) {
+        const opt = document.createElement("option");
+        opt.value = val;
+        opt.textContent = val;
+        channelSelect.appendChild(opt);
+      }
+      channelSelect.value = val;
+      if (pickerEl) pickerEl.classList.add("hidden");
+      listEl.classList.remove("hidden");
+      load();
+    }
+    if (btn) btn.addEventListener("click", openSelected);
+    if (sel) sel.addEventListener("change", openSelected);
+  }
+
   async function loadChannels() {
     try {
       const prev = channelSelect.value;
@@ -232,6 +270,7 @@
         opt.textContent = label;
         channelSelect.appendChild(opt);
       }
+      renderPicker(items);
       // restore previous selection if still available
       if (prev) {
         const found = Array.from(channelSelect.options).some((o) => o.value === prev);
@@ -245,6 +284,10 @@
   channelSelect.addEventListener("change", () => {
     const val = channelSelect.value;
     userFilter.value = val.startsWith("@") ? val : (val ? "" : "");
+    // switch to posts view immediately
+    const pickerEl = document.getElementById("picker");
+    if (pickerEl) pickerEl.classList.add("hidden");
+    listEl.classList.remove("hidden");
     load();
   });
   window.addEventListener("beforeunload", () => {
@@ -253,6 +296,13 @@
       autoTimer = null;
     }
   });
+  if (backBtn) {
+    backBtn.addEventListener("click", () => {
+      if (pickerEl) pickerEl.classList.remove("hidden");
+      listEl.classList.add("hidden");
+      if (!channelsCache.length) loadChannels();
+    });
+  }
 
   function escapeHtml(s) {
     return s
@@ -550,7 +600,10 @@
       refreshChannelsBtn.textContent = "Refreshing…";
       try {
         await loadChannels();
-        await load(); // reload posts for newly selected/available channel
+        // if list is visible, reload posts; otherwise stay on picker
+        if (!pickerEl || pickerEl.classList.contains("hidden")) {
+          await load();
+        }
       } catch (e) {
         console.error(e);
       } finally {
@@ -559,7 +612,8 @@
       }
     });
   }
-  loadChannels().then(load);
+  // initial: show picker only
+  loadChannels();
 })();
 
 

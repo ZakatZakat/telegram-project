@@ -27,6 +27,43 @@ html, body {
   margin: 0 auto;
   padding: 12px;
 }
+/* Channel picker */
+#picker {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+  margin: 12px 0;
+}
+.tile {
+  border: 1px solid var(--border);
+  background: var(--card);
+  padding: 14px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: border-color .15s ease, transform .1s ease;
+}
+.tile:hover {
+  border-color: #6b7280;
+  transform: translateY(-1px);
+}
+.tile.picker-card {
+  cursor: default;
+  width: 100%;
+  max-width: 520px;
+}
+.tile .title {
+  font-weight: 600;
+  color: var(--fg);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.tile .subtitle {
+  color: var(--muted);
+  font-size: 12px;
+}
 header {
   display: flex;
   justify-content: space-between;
