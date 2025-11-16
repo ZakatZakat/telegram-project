@@ -16,7 +16,7 @@ from tg_events.ingest.telethon_client import build_client, open_client
 from telethon.utils import get_display_name
 from telethon.tl.types import Channel as TlChannel, User as TlUser
 from tg_events.ai.commenter import comment_message, get_prompt_template, set_prompt_template
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, and_, or_
 from tg_events.models import AiComment, Channel, MessageRaw, Event, Topic, TopicItem, Project, ProjectIdea
 
 
@@ -427,6 +427,7 @@ async def update_comment(req: UpdateCommentRequest) -> dict[str, int]:
 
 # Topics API
 class TopicItemOut(BaseModel):
+    id: int
     message_id: Optional[int] = None
     channel_tg_id: Optional[int] = None
     msg_id: Optional[int] = None
@@ -484,6 +485,7 @@ async def list_topics(session: AsyncSession = Depends(get_session)) -> TopicsRes
             snap_rows = (
                 await session.execute(
                     select(
+                        TopicItem.id,
                         TopicItem.message_id,
                         TopicItem.channel_tg_id,
                         TopicItem.msg_id,
@@ -496,13 +498,14 @@ async def list_topics(session: AsyncSession = Depends(get_session)) -> TopicsRes
             ).all()
             item_objs = [
                 TopicItemOut(
-                    message_id=r[0],
-                    channel_tg_id=r[1],
-                    msg_id=r[2],
-                    post_text=r[3],
-                    comment_text=r[4],
-                    channel_username=r[5],
-                    source_url=r[6],
+                    id=int(r[0]),
+                    message_id=r[1],
+                    channel_tg_id=r[2],
+                    msg_id=r[3],
+                    post_text=r[4],
+                    comment_text=r[5],
+                    channel_username=r[6],
+                    source_url=r[7],
                 )
                 for r in snap_rows
             ]
@@ -525,6 +528,76 @@ async def create_topic(req: TopicCreate, session: AsyncSession = Depends(get_ses
     # load items
     ids = (await session.execute(select(TopicItem.message_id).where(TopicItem.topic_id == row.id))).scalars().all()
     return TopicOut(id=int(row.id), name=row.name, message_ids=[int(x) for x in ids])
+
+
+class TopicItemRemove(BaseModel):
+    topic_id: Optional[int] = None
+    message_id: Optional[int] = None
+    channel_tg_id: Optional[int] = None
+    msg_id: Optional[int] = None
+    topic_item_id: Optional[int] = None
+
+
+@app.delete("/miniapp/api/topics/remove")
+async def remove_topic_item(req: TopicItemRemove, session: AsyncSession = Depends(get_session)) -> dict[str, int]:
+    logger.info(
+        "topics_remove request",
+        extra={
+            "topic_id": req.topic_id,
+            "message_id": req.message_id,
+            "topic_item_id": req.topic_item_id,
+            "channel_tg_id": req.channel_tg_id,
+            "msg_id": req.msg_id,
+        },
+    )
+    if req.topic_item_id is not None:
+        cond = (TopicItem.id == req.topic_item_id)
+        if req.topic_id is not None:
+            cond = and_(cond, TopicItem.topic_id == req.topic_id)
+        res = await session.execute(delete(TopicItem).where(cond))
+        await session.commit()
+        deleted = int(res.rowcount or 0)
+        logger.info("topics_remove direct by topic_item_id", extra={"deleted": deleted})
+        return {"deleted": deleted}
+    if req.topic_id is None:
+        raise ValueError("topic_id required when topic_item_id not provided")
+    if req.topic_item_id is None and req.message_id is None and (req.msg_id is None or req.channel_tg_id is None):
+        raise ValueError("topic_item_id or message_id/stable key required")
+    msg_id_val = req.msg_id
+    tg_id_val = req.channel_tg_id
+    if msg_id_val is None or tg_id_val is None:
+        sub = (
+            select(MessageRaw.msg_id, Channel.tg_id)
+            .join(Channel, Channel.id == MessageRaw.channel_id)
+            .where(MessageRaw.id == req.message_id)
+        )
+        row = (await session.execute(sub)).first()
+        if row is not None:
+            msg_id_val, tg_id_val = row
+    conds = []
+    if req.message_id is not None:
+        conds.append(TopicItem.message_id == req.message_id)
+    if msg_id_val is not None and tg_id_val is not None:
+        conds.append(and_(TopicItem.msg_id == msg_id_val, TopicItem.channel_tg_id == tg_id_val))
+    if not conds:
+        raise ValueError("unable to resolve message identifier for deletion")
+    res = await session.execute(
+        delete(TopicItem).where(TopicItem.topic_id == req.topic_id).where(or_(*conds))
+    )
+    deleted = int(res.rowcount or 0)
+    await session.commit()
+    logger.info(
+        "topics_remove summary",
+        extra={
+            "topic_id": req.topic_id,
+            "message_id": req.message_id,
+            "topic_item_id": req.topic_item_id,
+            "channel_tg_id": tg_id_val,
+            "msg_id": msg_id_val,
+            "deleted": deleted,
+        },
+    )
+    return {"deleted": deleted}
 
 
 @app.delete("/miniapp/api/topics/{topic_id}")
@@ -603,23 +676,6 @@ async def add_topic_item(req: TopicItemAdd, session: AsyncSession = Depends(get_
         )
     await session.commit()
     return {"added": 1}
-
-
-class TopicItemRemove(BaseModel):
-    topic_id: int
-    message_id: int
-
-
-@app.delete("/miniapp/api/topics/remove")
-async def remove_topic_item(req: TopicItemRemove, session: AsyncSession = Depends(get_session)) -> dict[str, int]:
-    res = await session.execute(
-        delete(TopicItem).where(
-            TopicItem.topic_id == req.topic_id,
-            TopicItem.message_id == req.message_id,
-        )
-    )
-    await session.commit()
-    return {"deleted": int(res.rowcount or 0)}
 
 # Projects API
 class ProjectOut(BaseModel):

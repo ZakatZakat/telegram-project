@@ -23,6 +23,7 @@
   let lastItems = [];
   let autoTimer = null;
   let channelsCache = [];
+  let topicsBoardListenerAttached = false;
   // topic name -> id index from server
   const topicIndex = new Map();
 
@@ -110,7 +111,10 @@
         const name = t.name || "";
         const id = t.id;
         topicIndex.set(name, id);
-        out[name] = Array.isArray(t.message_ids) ? t.message_ids : [];
+        out[name] = {
+          ids: Array.isArray(t.message_ids) ? t.message_ids : [],
+          snapshots: Array.isArray(t.items) ? t.items : [],
+        };
       }
       return out;
     } catch { return {}; }
@@ -164,11 +168,27 @@
       // cache numeric topic id on bucket to avoid map misses
       const tid = topicIndex.get(name);
       if (tid) bucket.dataset.topicId = String(tid);
-      // fill minis
-      const ids = Array.isArray(data[name]) ? data[name] : [];
+      const topicEntry = data[name] || { ids: [], snapshots: [] };
+      const ids = Array.isArray(topicEntry.ids) ? topicEntry.ids : [];
+      const snapshots = Array.isArray(topicEntry.snapshots) ? topicEntry.snapshots : [];
+      const snapByMessageId = new Map();
+      snapshots.forEach((snap) => {
+        if (snap && typeof snap === "object" && snap.message_id != null) {
+          snapByMessageId.set(snap.message_id, snap);
+        }
+      });
       for (const id of ids) {
+        const snap = snapByMessageId.get(id);
         const mini = buildMiniCard(id) || buildMiniPlaceholder(id);
-        if (mini) bucket.appendChild(mini);
+        if (mini) {
+      const wrap = createTopicMiniWrap(mini, {
+        messageId: id,
+        msgId: snap?.msg_id ?? null,
+        channelTgId: snap?.channel_tg_id ?? null,
+        topicItemId: snap?.id ?? null,
+      });
+          bucket.appendChild(wrap);
+        }
       }
       // dnd events
       bucket.addEventListener("dragover", (e) => { e.preventDefault(); bucket.classList.add("drop-hover"); });
@@ -184,6 +204,8 @@
         const hasCommentModel = !!(item && item.ai_comment && String(item.ai_comment).trim().length > 0);
         // snapshot: combine main + preceding 👆 text and include comment
         let postText = "";
+        let stableChannel = null;
+        let stableMsg = null;
         const idx = lastItems.findIndex((x) => x.id === id);
         if (idx >= 0) {
           const it = lastItems[idx];
@@ -194,8 +216,8 @@
             if (prevIsUp) extra = prev.text || "";
           }
           postText = extra ? `${it.text || ""}\\n\\n${extra}` : (it.text || "");
-          const channelTgId = it.channel_tg_id || null;
-          const msgId = it.msg_id || null;
+          stableChannel = it.channel_tg_id || null;
+          stableMsg = it.msg_id || null;
           const cmText = hasCommentModel ? String(item.ai_comment) : contentText;
           const commentText = cmText === "Комментарий отсутствует" ? null : cmText;
           const sourceUrl = it.source_url || null;
@@ -207,8 +229,8 @@
               body: JSON.stringify({
                 topic_id: Number(bucket.dataset.topicId || topicIndex.get(name) || 0),
                 message_id: id,
-                channel_tg_id: channelTgId,
-                msg_id: msgId,
+                channel_tg_id: stableChannel,
+                msg_id: stableMsg,
                 post_text: postText,
                 comment_text: commentText,
                 channel_username: channelUsername,
@@ -220,7 +242,45 @@
           await apiAddToTopic(name, id);
         }
         const mini = buildMiniCard(id) || buildMiniPlaceholder(id);
-        if (mini) bucket.appendChild(mini);
+        if (mini) {
+          const wrap = createTopicMiniWrap(mini, {
+            messageId: id,
+            msgId: stableMsg,
+            channelTgId: stableChannel,
+            topicItemId: null,
+          });
+          bucket.appendChild(wrap);
+        }
+      });
+      // click handlers inside bucket (remove post from topic)
+      bucket.addEventListener("click", async (e) => {
+        const target = e.target;
+        if (!(target instanceof Element)) return;
+        if (target.classList.contains("mini-rm")) {
+          const id = Number(target.dataset.id || "0");
+          const topicId = Number(bucket.dataset.topicId || "0");
+          if (!id || !topicId) return;
+          const topicItemId = target.dataset.topicItemId ? Number(target.dataset.topicItemId) : null;
+          let channelTgId = target.dataset.channelTgId ? Number(target.dataset.channelTgId) : null;
+          let msgId = target.dataset.msgId ? Number(target.dataset.msgId) : null;
+          try {
+            await fetch(`/miniapp/api/topics/remove`, {
+              method: "DELETE",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                topic_id: topicId,
+                message_id: id,
+                channel_tg_id: channelTgId,
+                msg_id: msgId,
+                topic_item_id: topicItemId,
+              }),
+            });
+            const wrap = target.closest(".mini-wrap");
+            if (wrap) wrap.remove();
+            // notify other parts (e.g., Topics board) to refresh
+            window.dispatchEvent(new CustomEvent("topics:changed"));
+          } catch {}
+        }
       });
       // remove topic
       t.querySelector("button[data-rm]").addEventListener("click", async () => {
@@ -259,6 +319,25 @@
     el.innerHTML = `<div class="tx"><strong>Post</strong> #${id}</div>`;
     return el;
   }
+function createTopicMiniWrap(miniEl, options) {
+  const wrap = document.createElement("div");
+  wrap.className = "mini-wrap";
+  wrap.dataset.id = String(options.messageId);
+  if (options.msgId != null) wrap.dataset.msgId = String(options.msgId);
+  if (options.channelTgId != null) wrap.dataset.channelTgId = String(options.channelTgId);
+  if (options.topicItemId != null) wrap.dataset.topicItemId = String(options.topicItemId);
+  wrap.appendChild(miniEl);
+  const btn = document.createElement("button");
+  btn.className = "mini-rm";
+  btn.textContent = "×";
+  btn.title = "Remove from topic";
+  btn.dataset.id = String(options.messageId);
+  if (options.msgId != null) btn.dataset.msgId = String(options.msgId);
+  if (options.channelTgId != null) btn.dataset.channelTgId = String(options.channelTgId);
+  if (options.topicItemId != null) btn.dataset.topicItemId = String(options.topicItemId);
+  wrap.appendChild(btn);
+  return wrap;
+}
 
   async function load() {
     if (pickerEl) pickerEl.classList.add("hidden");
@@ -480,6 +559,38 @@
     const promptCancel = document.getElementById("promptCancel");
     const promptSave = document.getElementById("promptSave");
 
+    async function loadForwardSenders() {
+      const params = new URLSearchParams();
+      const selected = channelSelect.value ? channelSelect.value.trim() : "";
+      if (selected) {
+        if (selected.startsWith("@")) {
+          params.set("username", selected.slice(1));
+        } else if (/^\d+$/.test(selected)) {
+          params.set("channel_id", selected);
+        }
+      }
+      try {
+        const r = await fetch(`/miniapp/api/forwards?${params.toString()}`);
+        const d = await r.json();
+        const items = Array.isArray(d.items) ? d.items : [];
+        if (fwdSel) {
+          fwdSel.innerHTML =
+            `<option value="">All forwards</option>` +
+            items
+              .map((it) => {
+                const v = it.username ? `@${it.username}` : "";
+                return v ? `<option value="${v}">${v}</option>` : "";
+              })
+              .join("");
+        }
+      } catch (err) {
+        console.error("loadForwardSenders failed", err);
+        if (fwdSel) {
+          fwdSel.innerHTML = `<option value="">All forwards</option>`;
+        }
+      }
+    }
+
     async function loadTopicsBoard() {
       const r = await fetch(`/miniapp/api/topics`);
       const d = await r.json();
@@ -545,7 +656,14 @@
       // no actions in board for now
     }
 
+    loadForwardSenders().catch(()=>{});
     loadTopicsBoard().catch(()=>{});
+    if (!topicsBoardListenerAttached) {
+      window.addEventListener("topics:changed", () => {
+        loadTopicsBoard().catch(()=>{});
+      });
+      topicsBoardListenerAttached = true;
+    }
 
     clearBtnF && clearBtnF.addEventListener("click", () => { if (fwdSel && "value" in fwdSel) fwdSel.value = ""; pickerEl.classList.add("hidden"); listEl.classList.remove("hidden"); if (boardEl) { boardEl.classList.add("hidden"); boardEl.style.display = "none"; } load(); });
     if (fwdSel) fwdSel.addEventListener("change", () => { pickerEl.classList.add("hidden"); listEl.classList.remove("hidden"); if (boardEl) { boardEl.classList.add("hidden"); boardEl.style.display = "none"; } load(); });
