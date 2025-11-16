@@ -501,8 +501,8 @@
           const postFull = (it.post_text || "");
           const shortText = postFull.length > 220 ? (postFull.slice(0, 220) + "…") : postFull;
           const shortHtml = escapeHtml(shortText).replace(/\n/g, "<br/>");
-          const cmHtml = it.comment_text ? escapeHtml(it.comment_text).replace(/\n/g, "<br/>") : "";
-          mini.innerHTML = `<div class=\"tx\" style=\"font-size:12px\">${shortHtml}</div>${cmHtml ? `<div class=\"cm\" style=\"font-size:11px;color:var(--muted)\">${cmHtml}</div>` : ""}`;
+          const cmHtml = (it.comment_text && String(it.comment_text).trim().length > 0) ? escapeHtml(it.comment_text).replace(/\n/g, "<br/>") : "Комментарий отсутствует";
+          mini.innerHTML = `<div class=\"tx\" style=\"font-size:12px\">${shortHtml}</div><div class=\"cm\" style=\"font-size:11px;color:var(--muted)\">${cmHtml}</div>`;
           // store snapshot
           mini.dataset.snapshot = JSON.stringify({
             channel_tg_id: it.channel_tg_id || null,
