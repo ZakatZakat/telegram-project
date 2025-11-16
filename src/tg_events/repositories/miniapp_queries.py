@@ -35,6 +35,7 @@ async def list_recent_messages(
         MessageRaw.text,
         MessageRaw.attachments,
         MessageRaw.features,
+        Channel.tg_id,
         Channel.title,
         Channel.username,
         AiComment.comment_text.label("ai_comment"),
@@ -57,7 +58,7 @@ async def list_recent_messages(
         stmt = stmt.where(Channel.tg_id == channel_tg_id)
     rows = (await session.execute(stmt)).all()
     items: List[MiniappPost] = []
-    for rid, msg_id, date, text, attachments, features, title, username, ai_comment in rows:
+    for rid, msg_id, date, text, attachments, features, tg_id, title, username, ai_comment in rows:
         source_url: Optional[str] = None
         if username:
             source_url = f"https://t.me/{username}/{msg_id}"
@@ -87,6 +88,7 @@ async def list_recent_messages(
             "msg_id": int(msg_id),
             "date": date.isoformat(),
             "text": text or "",
+            "channel_tg_id": int(tg_id) if tg_id is not None else None,
             "channel_title": title,
             "channel_username": username,
             "source_url": source_url,

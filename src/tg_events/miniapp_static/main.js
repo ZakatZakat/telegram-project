@@ -15,6 +15,7 @@
   const genCount = document.getElementById("genCount");
   const genStatus = document.getElementById("genStatus");
   const clearBtn = document.getElementById("clearBtn");
+  const deletePostsBtn = document.getElementById("deletePostsBtn");
   const pickerEl = document.getElementById("picker");
   const backBtn = document.getElementById("backBtn");
   const topicsEl = document.getElementById("topics");
@@ -159,6 +160,9 @@
       t.innerHTML = `<header><span>${escapeHtml(name)}</span><button class="action" data-rm="${escapeHtml(name)}">Remove</button></header><div class="bucket" data-topic="${escapeHtml(name)}"></div>`;
       list.appendChild(t);
       const bucket = t.querySelector(".bucket");
+      // cache numeric topic id on bucket to avoid map misses
+      const tid = topicIndex.get(name);
+      if (tid) bucket.dataset.topicId = String(tid);
       // fill minis
       const ids = Array.isArray(data[name]) ? data[name] : [];
       for (const id of ids) {
@@ -173,9 +177,47 @@
         const idStr = e.dataTransfer.getData("text/plain");
         const id = Number(idStr || "0"); if (!id) return;
         const c = document.getElementById(`comment-${id}`);
-        const hasComment = !!(c && c.querySelector(".content") && c.querySelector(".content").textContent && c.querySelector(".content").textContent !== "Комментарий отсутствует");
-        if (!hasComment) return;
-        await apiAddToTopic(name, id);
+        const contentText = (c && c.querySelector(".content")) ? (c.querySelector(".content").textContent || "") : "";
+        // also look at model state (DOM may be out-of-sync)
+        const item = lastItems.find((x) => x.id === id);
+        const hasCommentModel = !!(item && item.ai_comment && String(item.ai_comment).trim().length > 0);
+        // snapshot: combine main + preceding 👆 text and include comment
+        let postText = "";
+        const idx = lastItems.findIndex((x) => x.id === id);
+        if (idx >= 0) {
+          const it = lastItems[idx];
+          let extra = "";
+          if (idx - 1 >= 0) {
+            const prev = lastItems[idx - 1];
+            const prevIsUp = typeof prev.text === "string" && prev.text.trim().startsWith("👆");
+            if (prevIsUp) extra = prev.text || "";
+          }
+          postText = extra ? `${it.text || ""}\\n\\n${extra}` : (it.text || "");
+          const channelTgId = it.channel_tg_id || null;
+          const msgId = it.msg_id || null;
+          const cmText = hasCommentModel ? String(item.ai_comment) : contentText;
+          const commentText = cmText === "Комментарий отсутствует" ? null : cmText;
+          const sourceUrl = it.source_url || null;
+          const channelUsername = it.channel_username || null;
+          try {
+            await fetch(`/miniapp/api/topics/add`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                topic_id: Number(bucket.dataset.topicId || topicIndex.get(name) || 0),
+                message_id: id,
+                channel_tg_id: channelTgId,
+                msg_id: msgId,
+                post_text: postText,
+                comment_text: commentText,
+                channel_username: channelUsername,
+                source_url: sourceUrl,
+              }),
+            });
+          } catch {}
+        } else {
+          await apiAddToTopic(name, id);
+        }
         const mini = buildMiniCard(id) || buildMiniPlaceholder(id);
         if (mini) bucket.appendChild(mini);
       });
@@ -269,6 +311,12 @@
         }
         const card = document.createElement("article");
         card.className = "card";
+        if (!asChild) {
+          card.setAttribute("draggable", "true");
+          card.addEventListener("dragstart", (e) => {
+            e.dataTransfer.setData("text/plain", String(it.id));
+          });
+        }
         const title = it.channel_title || it.channel_username || "Channel";
         const link = it.source_url ? `<a href="${it.source_url}" target="_blank">Open</a>` : "";
         const fwdSource = (() => {
@@ -776,6 +824,37 @@
           genStatus.classList.remove("hidden");
         }
         console.error(e);
+      }
+    });
+  }
+  if (deletePostsBtn) {
+    deletePostsBtn.addEventListener("click", async () => {
+      try {
+        const ids = Array.isArray(lastItems) ? lastItems.map((x) => x.id) : [];
+        if (!ids.length) return;
+        deletePostsBtn.disabled = true;
+        deletePostsBtn.textContent = "Deleting…";
+        await fetch(`/miniapp/api/posts`, {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message_ids: ids, delete_media: true }),
+        });
+        await load();
+        if (genStatus) {
+          genStatus.textContent = "✓ Posts deleted";
+          genStatus.className = "status-badge";
+          genStatus.classList.remove("hidden");
+        }
+      } catch (e) {
+        console.error(e);
+        if (genStatus) {
+          genStatus.textContent = "Error deleting posts";
+          genStatus.className = "status-badge error";
+          genStatus.classList.remove("hidden");
+        }
+      } finally {
+        deletePostsBtn.disabled = false;
+        deletePostsBtn.textContent = "Delete posts";
       }
     });
   }

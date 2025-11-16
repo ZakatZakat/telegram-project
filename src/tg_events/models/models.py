@@ -34,11 +34,22 @@ class Topic(TimestampMixin, Base):
 
 class TopicItem(TimestampMixin, Base):
     __tablename__ = "topic_items"
-    __table_args__ = (UniqueConstraint("topic_id", "message_id", name="uq_topic_items_topic_message"),)
+    __table_args__ = (
+        UniqueConstraint("topic_id", "channel_tg_id", "msg_id", name="uq_topic_items_topic_msgkey"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     topic_id: Mapped[int] = mapped_column(ForeignKey("topics.id", ondelete="CASCADE"), index=True)
-    message_id: Mapped[int] = mapped_column(ForeignKey("messages_raw.id", ondelete="CASCADE"), index=True)
+    # legacy link (may be null) — kept for backward-compat
+    message_id: Mapped[Optional[int]] = mapped_column(ForeignKey("messages_raw.id", ondelete="CASCADE"), index=True, nullable=True)
+    # stable key
+    channel_tg_id: Mapped[Optional[int]] = mapped_column(BigInteger, index=True)
+    msg_id: Mapped[Optional[int]] = mapped_column(BigInteger, index=True)
+    # snapshot
+    post_text: Mapped[Optional[str]] = mapped_column(Text)
+    comment_text: Mapped[Optional[str]] = mapped_column(Text)
+    channel_username: Mapped[Optional[str]] = mapped_column(String(255))
+    source_url: Mapped[Optional[str]] = mapped_column(Text)
 
     topic: Mapped["Topic"] = relationship(back_populates="items")
     message: Mapped["MessageRaw"] = relationship()

@@ -426,10 +426,21 @@ async def update_comment(req: UpdateCommentRequest) -> dict[str, int]:
         return {"updated": int(updated)}
 
 # Topics API
+class TopicItemOut(BaseModel):
+    message_id: Optional[int] = None
+    channel_tg_id: Optional[int] = None
+    msg_id: Optional[int] = None
+    post_text: Optional[str] = None
+    comment_text: Optional[str] = None
+    channel_username: Optional[str] = None
+    source_url: Optional[str] = None
+
+
 class TopicOut(BaseModel):
     id: int
     name: str
     message_ids: list[int]
+    items: list[TopicItemOut] = []
 
 
 class TopicsResponse(BaseModel):
@@ -443,18 +454,59 @@ class TopicCreate(BaseModel):
 class TopicItemAdd(BaseModel):
     topic_id: int
     message_id: int
+    channel_tg_id: Optional[int] = None
+    msg_id: Optional[int] = None
+    post_text: Optional[str] = None
+    comment_text: Optional[str] = None
+    channel_username: Optional[str] = None
+    source_url: Optional[str] = None
 
 
 @app.get("/miniapp/api/topics", response_model=TopicsResponse)
 async def list_topics(session: AsyncSession = Depends(get_session)) -> TopicsResponse:
-    q = select(Topic.id, Topic.name)
-    rows = (await session.execute(q)).all()
+    rows = (await session.execute(select(Topic.id, Topic.name))).all()
     items: list[TopicOut] = []
     if rows:
         for tid, name in rows:
-            ids_q = select(TopicItem.message_id).where(TopicItem.topic_id == tid)
+            # resolve current message_ids via stable key if present
+            ids_q = (
+                select(MessageRaw.id)
+                .join(Channel, Channel.id == MessageRaw.channel_id)
+                .join(
+                    TopicItem,
+                    (TopicItem.topic_id == tid)
+                    & (TopicItem.msg_id == MessageRaw.msg_id)
+                    & (TopicItem.channel_tg_id == Channel.tg_id),
+                )
+            )
             msg_ids = (await session.execute(ids_q)).scalars().all()
-            items.append(TopicOut(id=int(tid), name=name, message_ids=[int(x) for x in msg_ids]))
+            # also include snapshot items
+            snap_rows = (
+                await session.execute(
+                    select(
+                        TopicItem.message_id,
+                        TopicItem.channel_tg_id,
+                        TopicItem.msg_id,
+                        TopicItem.post_text,
+                        TopicItem.comment_text,
+                        TopicItem.channel_username,
+                        TopicItem.source_url,
+                    ).where(TopicItem.topic_id == tid)
+                )
+            ).all()
+            item_objs = [
+                TopicItemOut(
+                    message_id=r[0],
+                    channel_tg_id=r[1],
+                    msg_id=r[2],
+                    post_text=r[3],
+                    comment_text=r[4],
+                    channel_username=r[5],
+                    source_url=r[6],
+                )
+                for r in snap_rows
+            ]
+            items.append(TopicOut(id=int(tid), name=name, message_ids=[int(x) for x in msg_ids], items=item_objs))
     return TopicsResponse(items=items)
 
 
@@ -484,24 +536,73 @@ async def delete_topic(topic_id: int, session: AsyncSession = Depends(get_sessio
 
 @app.post("/miniapp/api/topics/add")
 async def add_topic_item(req: TopicItemAdd, session: AsyncSession = Depends(get_session)) -> dict[str, int]:
-    # ensure message exists
+    # idempotent upsert by (topic_id, channel_tg_id, msg_id). If those are not provided, fall back to message_id.
+    if req.channel_tg_id is not None and req.msg_id is not None:
+        exists = (
+            await session.execute(
+                select(TopicItem.id).where(
+                    TopicItem.topic_id == req.topic_id,
+                    TopicItem.channel_tg_id == req.channel_tg_id,
+                    TopicItem.msg_id == req.msg_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if exists is None:
+            session.add(
+                TopicItem(
+                    topic_id=req.topic_id,
+                    message_id=req.message_id,
+                    channel_tg_id=req.channel_tg_id,
+                    msg_id=req.msg_id,
+                    post_text=(req.post_text or None),
+                    comment_text=(req.comment_text or None),
+                    channel_username=(req.channel_username or None),
+                    source_url=(req.source_url or None),
+                )
+            )
+        else:
+            # update snapshot on re-add
+            from sqlalchemy import update as sa_update
+            await session.execute(
+                sa_update(TopicItem)
+                .where(TopicItem.id == exists)
+                .values(
+                    message_id=req.message_id,
+                    post_text=(req.post_text or None),
+                    comment_text=(req.comment_text or None),
+                    channel_username=(req.channel_username or None),
+                    source_url=(req.source_url or None),
+                )
+            )
+        await session.commit()
+        return {"added": 1}
+    # fallback using message_id only
     m = (await session.execute(select(MessageRaw.id).where(MessageRaw.id == req.message_id))).scalar_one_or_none()
     if m is None:
         return {"added": 0}
-    # check duplicate
     exists = (
         await session.execute(
-            select(TopicItem.id).where(
-                TopicItem.topic_id == req.topic_id,
-                TopicItem.message_id == req.message_id,
-            )
+            select(TopicItem.id).where(TopicItem.topic_id == req.topic_id, TopicItem.message_id == req.message_id)
         )
     ).scalar_one_or_none()
     if exists is None:
-        session.add(TopicItem(topic_id=req.topic_id, message_id=req.message_id))
-        await session.commit()
-        return {"added": 1}
-    return {"added": 0}
+        session.add(
+            TopicItem(
+                topic_id=req.topic_id,
+                message_id=req.message_id,
+                post_text=(req.post_text or None),
+                comment_text=(req.comment_text or None),
+            )
+        )
+    else:
+        from sqlalchemy import update as sa_update
+        await session.execute(
+            sa_update(TopicItem)
+            .where(TopicItem.id == exists)
+            .values(post_text=(req.post_text or None), comment_text=(req.comment_text or None))
+        )
+    await session.commit()
+    return {"added": 1}
 
 
 class TopicItemRemove(BaseModel):
