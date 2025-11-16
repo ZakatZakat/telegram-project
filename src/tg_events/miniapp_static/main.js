@@ -103,6 +103,7 @@
   }
   function renderTopicsSidebar() {
     if (!topicsEl) return;
+    topicsEl.classList.remove("hidden");
     const data = loadTopicsFromStorage();
     topicsEl.innerHTML = `
       <h3>Topics</h3>
