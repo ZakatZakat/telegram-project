@@ -494,9 +494,11 @@
         for (const it of (t.items || [])) {
           const mini = document.createElement("div");
           mini.className = "mini";
-          const postHtml = escapeHtml(it.post_text || "").replace(/\n/g, "<br/>");
+          const postFull = (it.post_text || "");
+          const shortText = postFull.length > 220 ? (postFull.slice(0, 220) + "…") : postFull;
+          const shortHtml = escapeHtml(shortText).replace(/\n/g, "<br/>");
           const cmHtml = it.comment_text ? escapeHtml(it.comment_text).replace(/\n/g, "<br/>") : "";
-          mini.innerHTML = `<div class=\"tx\" style=\"font-size:12px\">${postHtml}</div>${cmHtml ? `<div class=\"cm\" style=\"font-size:11px;color:var(--muted)\">${cmHtml}</div>` : ""}`;
+          mini.innerHTML = `<div class=\"tx\" style=\"font-size:12px\">${shortHtml}</div>${cmHtml ? `<div class=\"cm\" style=\"font-size:11px;color:var(--muted)\">${cmHtml}</div>` : ""}`;
           // store snapshot
           mini.dataset.snapshot = JSON.stringify({
             channel_tg_id: it.channel_tg_id || null,
@@ -506,6 +508,31 @@
             channel_username: it.channel_username || null,
             source_url: it.source_url || null,
           });
+          if (postFull.length > 220) {
+            mini.dataset.fullPost = postFull;
+            mini.dataset.shortPost = shortText;
+            const actions = document.createElement("div");
+            actions.className = "mini-actions";
+            const btn = document.createElement("button");
+            btn.className = "action sm toggle";
+            btn.textContent = "Expand";
+            btn.addEventListener("click", (e) => {
+              e.stopPropagation();
+              const tx = mini.querySelector(".tx");
+              const expanded = mini.classList.toggle("expanded");
+              if (tx) {
+                if (expanded) {
+                  tx.innerHTML = escapeHtml(mini.dataset.fullPost || "").replace(/\n/g, "<br/>");
+                  btn.textContent = "Collapse";
+                } else {
+                  tx.innerHTML = escapeHtml(mini.dataset.shortPost || "").replace(/\n/g, "<br/>");
+                  btn.textContent = "Expand";
+                }
+              }
+            });
+            actions.appendChild(btn);
+            mini.appendChild(actions);
+          }
           bucket.appendChild(mini);
         }
         col.appendChild(bucket);
