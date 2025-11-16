@@ -19,6 +19,7 @@
   const pickerEl = document.getElementById("picker");
   const backBtn = document.getElementById("backBtn");
   const topicsEl = document.getElementById("topics");
+  const boardEl = document.getElementById("board");
   let lastItems = [];
   let autoTimer = null;
   let channelsCache = [];
@@ -432,7 +433,16 @@
           <button id="clearFwdFilter" class="action">Clear</button>
           <button id="editPromptBtn" class="action">Edit prompt</button>
         </div>
-      </div>
+      </div>`;
+    // render board (topics only) below picker into dedicated section
+    if (boardEl) {
+      boardEl.innerHTML = `
+      <div class="tile compact" id="topicsBoard">
+        <div class="title"><span>Topics board</span></div>
+        <div id="topicsBoardInner" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap:10px;"></div>
+      </div>`;
+    }
+    pickerEl.insertAdjacentHTML("beforeend", `
       <div id="promptModal" class="modal">
         <div class="panel">
           <h3>Edit comment prompt</h3>
@@ -443,8 +453,7 @@
             <button id="promptSave" class="action">Save</button>
           </div>
         </div>
-      </div>
-    `;
+      </div>`);
     pickerEl.classList.remove("hidden");
     listEl.classList.add("hidden");
     const holder = document.getElementById("pickerControls");
@@ -466,50 +475,66 @@
     const promptText = document.getElementById("promptText");
     const promptCancel = document.getElementById("promptCancel");
     const promptSave = document.getElementById("promptSave");
-    async function loadForwardSenders() {
-      const params = new URLSearchParams();
-      const selected = channelSelect.value ? channelSelect.value.trim() : "";
-      if (selected) {
-        if (selected.startsWith("@")) params.set("username", selected.slice(1));
-        else params.set("channel_id", selected);
-      }
-      const r = await fetch(`/miniapp/api/forwards?${params.toString()}`);
+
+    async function loadTopicsBoard() {
+      const r = await fetch(`/miniapp/api/topics`);
       const d = await r.json();
-      const items = d.items || [];
-      if (fwdSel) {
-        fwdSel.innerHTML = `<option value="">All forwards</option>` + items.map((it) => {
-          const v = it.username ? `@${it.username}` : "";
-          return v ? `<option value="${v}">${v}</option>` : "";
-        }).join("");
+      const inner = document.getElementById("topicsBoardInner");
+      inner.innerHTML = "";
+      const items = Array.isArray(d.items) ? d.items : [];
+      for (const t of items) {
+        const col = document.createElement("div");
+        col.className = "card topic-card";
+        const head = document.createElement("div");
+        head.className = "topic-title";
+        head.textContent = t.name;
+        col.appendChild(head);
+        const bucket = document.createElement("div");
+        bucket.className = "mini-grid";
+        for (const it of (t.items || [])) {
+          const mini = document.createElement("div");
+          mini.className = "mini";
+          const postHtml = escapeHtml(it.post_text || "").replace(/\n/g, "<br/>");
+          const cmHtml = it.comment_text ? escapeHtml(it.comment_text).replace(/\n/g, "<br/>") : "";
+          mini.innerHTML = `<div class=\"tx\" style=\"font-size:12px\">${postHtml}</div>${cmHtml ? `<div class=\"cm\" style=\"font-size:11px;color:var(--muted)\">${cmHtml}</div>` : ""}`;
+          // store snapshot
+          mini.dataset.snapshot = JSON.stringify({
+            channel_tg_id: it.channel_tg_id || null,
+            msg_id: it.msg_id || null,
+            post_text: it.post_text || "",
+            comment_text: it.comment_text || null,
+            channel_username: it.channel_username || null,
+            source_url: it.source_url || null,
+          });
+          bucket.appendChild(mini);
+        }
+        col.appendChild(bucket);
+        inner.appendChild(col);
       }
+      // no actions in board for now
     }
-    loadForwardSenders().catch(() => {});
-    if (fwdSel) fwdSel.addEventListener("change", () => { if (pickerEl) pickerEl.classList.add("hidden"); listEl.classList.remove("hidden"); load(); });
-    if (clearBtnF) clearBtnF.addEventListener("click", () => { if (fwdSel && "value" in fwdSel) fwdSel.value = ""; if (pickerEl) pickerEl.classList.add("hidden"); listEl.classList.remove("hidden"); load(); });
+
+    loadTopicsBoard().catch(()=>{});
+
+    clearBtnF && clearBtnF.addEventListener("click", () => { if (fwdSel && "value" in fwdSel) fwdSel.value = ""; pickerEl.classList.add("hidden"); listEl.classList.remove("hidden"); load(); });
+    if (fwdSel) fwdSel.addEventListener("change", () => { pickerEl.classList.add("hidden"); listEl.classList.remove("hidden"); load(); });
+
     if (editPromptBtn && modal && promptText && promptCancel && promptSave) {
       editPromptBtn.addEventListener("click", async () => {
-        try {
-          const r = await fetch(`/miniapp/api/prompt`);
-          const d = await r.json();
-          promptText.value = d.template || "";
-        } catch {}
+        try { const r = await fetch(`/miniapp/api/prompt`); const d = await r.json(); promptText.value = d.template || ""; } catch {}
         modal.style.display = "flex";
       });
       promptCancel.addEventListener("click", () => { modal.style.display = "none"; });
       promptSave.addEventListener("click", async () => {
-        try {
-          const tmpl = promptText.value || "";
-          await fetch(`/miniapp/api/prompt`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ template: tmpl }),
-          });
-        } catch {}
+        try { const tmpl = promptText.value || ""; await fetch(`/miniapp/api/prompt`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ template: tmpl }) }); } catch {}
         modal.style.display = "none";
       });
       modal.addEventListener("click", (e) => { if (e.target === modal) modal.style.display = "none"; });
       document.addEventListener("keydown", (e) => { if (e.key === "Escape") modal.style.display = "none"; });
     }
+
+    // Projects block removed for now
+
     channelSelect.addEventListener("change", () => loadForwardSenders().catch(() => {}));
   }
 

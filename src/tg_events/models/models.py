@@ -54,6 +54,37 @@ class TopicItem(TimestampMixin, Base):
     topic: Mapped["Topic"] = relationship(back_populates="items")
     message: Mapped["MessageRaw"] = relationship()
 
+class Project(TimestampMixin, Base):
+    __tablename__ = "projects"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(200), unique=True)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(32), default="draft")
+
+    ideas: Mapped[list["ProjectIdea"]] = relationship(back_populates="project", cascade="all, delete-orphan")
+
+
+class ProjectIdea(TimestampMixin, Base):
+    __tablename__ = "project_ideas"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    topic_id: Mapped[Optional[int]] = mapped_column(ForeignKey("topics.id", ondelete="SET NULL"))
+    topic_item_id: Mapped[Optional[int]] = mapped_column(ForeignKey("topic_items.id", ondelete="SET NULL"))
+    # stable key and snapshot (duplicated from TopicItem at the time of addition)
+    channel_tg_id: Mapped[Optional[int]] = mapped_column(BigInteger, index=True)
+    msg_id: Mapped[Optional[int]] = mapped_column(BigInteger, index=True)
+    post_text: Mapped[Optional[str]] = mapped_column(Text)
+    comment_text: Mapped[Optional[str]] = mapped_column(Text)
+    channel_username: Mapped[Optional[str]] = mapped_column(String(255))
+    source_url: Mapped[Optional[str]] = mapped_column(Text)
+    note: Mapped[Optional[str]] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(24), default="idea")  # idea|planned|in_progress|done
+
+    project: Mapped["Project"] = relationship(back_populates="ideas")
+    topic: Mapped[Optional["Topic"]] = relationship()
+    topic_item: Mapped[Optional["TopicItem"]] = relationship()
 
 class Channel(TimestampMixin, Base):
     __tablename__ = "channels"

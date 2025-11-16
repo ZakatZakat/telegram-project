@@ -17,7 +17,7 @@ from telethon.utils import get_display_name
 from telethon.tl.types import Channel as TlChannel, User as TlUser
 from tg_events.ai.commenter import comment_message, get_prompt_template, set_prompt_template
 from sqlalchemy import delete, select
-from tg_events.models import AiComment, Channel, MessageRaw, Event, Topic, TopicItem
+from tg_events.models import AiComment, Channel, MessageRaw, Event, Topic, TopicItem, Project, ProjectIdea
 
 
 settings = get_settings()
@@ -618,6 +618,109 @@ async def remove_topic_item(req: TopicItemRemove, session: AsyncSession = Depend
             TopicItem.message_id == req.message_id,
         )
     )
+    await session.commit()
+    return {"deleted": int(res.rowcount or 0)}
+
+# Projects API
+class ProjectOut(BaseModel):
+    id: int
+    name: str
+    description: Optional[str] = None
+    status: str
+    ideas_count: int = 0
+
+
+class ProjectsResponse(BaseModel):
+    items: list[ProjectOut]
+
+
+class ProjectCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+
+
+@app.get("/miniapp/api/projects", response_model=ProjectsResponse)
+async def list_projects(session: AsyncSession = Depends(get_session)) -> ProjectsResponse:
+    rows = (await session.execute(select(Project.id, Project.name, Project.description, Project.status))).all()
+    out: list[ProjectOut] = []
+    for pid, name, desc, status in rows:
+        ids = (await session.execute(select(ProjectIdea.id).where(ProjectIdea.project_id == pid))).scalars().all()
+        out.append(ProjectOut(id=int(pid), name=name, description=desc, status=status, ideas_count=len(ids)))
+    return ProjectsResponse(items=out)
+
+
+@app.post("/miniapp/api/projects", response_model=ProjectOut)
+async def create_project(req: ProjectCreate, session: AsyncSession = Depends(get_session)) -> ProjectOut:
+    name = (req.name or "").strip()
+    if not name:
+        raise ValueError("name required")
+    row = (await session.execute(select(Project).where(Project.name == name))).scalar_one_or_none()
+    if row is None:
+        row = Project(name=name, description=req.description or None)
+        session.add(row)
+        await session.commit()
+        await session.refresh(row)
+    ids = (await session.execute(select(ProjectIdea.id).where(ProjectIdea.project_id == row.id))).scalars().all()
+    return ProjectOut(id=int(row.id), name=row.name, description=row.description, status=row.status, ideas_count=len(ids))
+
+
+class ProjectIdeaAdd(BaseModel):
+    project_id: int
+    topic_id: Optional[int] = None
+    topic_item_id: Optional[int] = None
+    channel_tg_id: Optional[int] = None
+    msg_id: Optional[int] = None
+    post_text: Optional[str] = None
+    comment_text: Optional[str] = None
+    channel_username: Optional[str] = None
+    source_url: Optional[str] = None
+    note: Optional[str] = None
+
+
+@app.post("/miniapp/api/projects/ideas")
+async def add_project_idea(req: ProjectIdeaAdd, session: AsyncSession = Depends(get_session)) -> dict[str, int]:
+    idea = ProjectIdea(
+        project_id=req.project_id,
+        topic_id=req.topic_id,
+        topic_item_id=req.topic_item_id,
+        channel_tg_id=req.channel_tg_id,
+        msg_id=req.msg_id,
+        post_text=req.post_text,
+        comment_text=req.comment_text,
+        channel_username=req.channel_username,
+        source_url=req.source_url,
+        note=req.note,
+    )
+    session.add(idea)
+    await session.commit()
+    return {"added": 1}
+
+
+class ProjectIdeaUpdate(BaseModel):
+    note: Optional[str] = None
+    status: Optional[str] = None
+
+
+@app.put("/miniapp/api/projects/{project_id}/ideas/{idea_id}")
+async def update_project_idea(
+    project_id: int, idea_id: int, req: ProjectIdeaUpdate, session: AsyncSession = Depends(get_session)
+) -> dict[str, int]:
+    from sqlalchemy import update as sa_update
+    res = await session.execute(
+        sa_update(ProjectIdea)
+        .where(ProjectIdea.id == idea_id, ProjectIdea.project_id == project_id)
+        .values(
+            note=req.note if req.note is not None else ProjectIdea.note,
+            status=req.status if req.status is not None else ProjectIdea.status,
+        )
+    )
+    await session.commit()
+    return {"updated": int(res.rowcount or 0)}
+
+
+@app.delete("/miniapp/api/projects/{project_id}/ideas/{idea_id}")
+async def delete_project_idea(project_id: int, idea_id: int, session: AsyncSession = Depends(get_session)) -> dict[str, int]:
+    res = await session.execute(delete(ProjectIdea).where(ProjectIdea.id == idea_id, ProjectIdea.project_id == project_id))
     await session.commit()
     return {"deleted": int(res.rowcount or 0)}
 
