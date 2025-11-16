@@ -263,6 +263,7 @@
   async function load() {
     if (pickerEl) pickerEl.classList.add("hidden");
     listEl.classList.remove("hidden");
+    if (boardEl) { boardEl.classList.add("hidden"); boardEl.style.display = "none"; }
     listEl.innerHTML = "Loading...";
     const res = await fetch(`/miniapp/api/posts?${buildParams().toString()}`);
     const data = await res.json();
@@ -441,6 +442,8 @@
         <div class="title"><span>Topics board</span></div>
         <div id="topicsBoardInner" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap:10px;"></div>
       </div>`;
+      boardEl.classList.remove("hidden");
+      boardEl.style.display = "";
     }
     pickerEl.insertAdjacentHTML("beforeend", `
       <div id="promptModal" class="modal">
@@ -456,6 +459,7 @@
       </div>`);
     pickerEl.classList.remove("hidden");
     listEl.classList.add("hidden");
+    if (boardEl) { boardEl.classList.remove("hidden"); boardEl.style.display = ""; }
     const holder = document.getElementById("pickerControls");
     const bar = document.getElementById("controlsBar");
     if (holder && bar) holder.appendChild(bar);
@@ -543,8 +547,8 @@
 
     loadTopicsBoard().catch(()=>{});
 
-    clearBtnF && clearBtnF.addEventListener("click", () => { if (fwdSel && "value" in fwdSel) fwdSel.value = ""; pickerEl.classList.add("hidden"); listEl.classList.remove("hidden"); load(); });
-    if (fwdSel) fwdSel.addEventListener("change", () => { pickerEl.classList.add("hidden"); listEl.classList.remove("hidden"); load(); });
+    clearBtnF && clearBtnF.addEventListener("click", () => { if (fwdSel && "value" in fwdSel) fwdSel.value = ""; pickerEl.classList.add("hidden"); listEl.classList.remove("hidden"); if (boardEl) { boardEl.classList.add("hidden"); boardEl.style.display = "none"; } load(); });
+    if (fwdSel) fwdSel.addEventListener("change", () => { pickerEl.classList.add("hidden"); listEl.classList.remove("hidden"); if (boardEl) { boardEl.classList.add("hidden"); boardEl.style.display = "none"; } load(); });
 
     if (editPromptBtn && modal && promptText && promptCancel && promptSave) {
       editPromptBtn.addEventListener("click", async () => {
@@ -598,6 +602,7 @@
     const pickerEl = document.getElementById("picker");
     if (pickerEl) pickerEl.classList.add("hidden");
     listEl.classList.remove("hidden");
+    if (boardEl) { boardEl.classList.add("hidden"); boardEl.style.display = "none"; }
     load();
   });
   window.addEventListener("beforeunload", () => {
@@ -610,6 +615,7 @@
     backBtn.addEventListener("click", () => {
       if (pickerEl) pickerEl.classList.remove("hidden");
       listEl.classList.add("hidden");
+      if (boardEl) boardEl.classList.remove("hidden");
       if (!channelsCache.length) loadChannels();
     });
   }
