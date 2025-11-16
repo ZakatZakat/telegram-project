@@ -21,6 +21,8 @@
   let lastItems = [];
   let autoTimer = null;
   let channelsCache = [];
+  // topic name -> id index from server
+  const topicIndex = new Map();
 
   function sleep(ms) {
     return new Promise((r) => setTimeout(r, ms));
@@ -95,16 +97,51 @@
     }, 2000);
   }
 
-  function loadTopicsFromStorage() {
-    try { return JSON.parse(localStorage.getItem("topics_v1") || "{}"); } catch { return {}; }
+  async function fetchTopicsFromServer() {
+    try {
+      const r = await fetch(`/miniapp/api/topics`);
+      const d = await r.json();
+      const out = {};
+      topicIndex.clear();
+      const items = Array.isArray(d.items) ? d.items : [];
+      for (const t of items) {
+        const name = t.name || "";
+        const id = t.id;
+        topicIndex.set(name, id);
+        out[name] = Array.isArray(t.message_ids) ? t.message_ids : [];
+      }
+      return out;
+    } catch { return {}; }
   }
-  function saveTopicsToStorage(data) {
-    localStorage.setItem("topics_v1", JSON.stringify(data));
+  async function apiCreateTopic(name) {
+    const r = await fetch(`/miniapp/api/topics`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (d && d.id) topicIndex.set(name, d.id);
   }
-  function renderTopicsSidebar() {
+  async function apiDeleteTopic(name) {
+    const id = topicIndex.get(name);
+    if (!id) return;
+    await fetch(`/miniapp/api/topics/${id}`, { method: "DELETE" });
+    topicIndex.delete(name);
+  }
+  async function apiAddToTopic(name, messageId) {
+    const id = topicIndex.get(name);
+    if (!id) return;
+    await fetch(`/miniapp/api/topics/add`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ topic_id: id, message_id: messageId }),
+    });
+  }
+
+  async function renderTopicsSidebar() {
     if (!topicsEl) return;
     topicsEl.classList.remove("hidden");
-    const data = loadTopicsFromStorage();
+    const data = await fetchTopicsFromServer();
     topicsEl.innerHTML = `
       <h3>Topics</h3>
       <div style="display:flex; gap:6px; margin-bottom:8px">
@@ -125,43 +162,35 @@
       // fill minis
       const ids = Array.isArray(data[name]) ? data[name] : [];
       for (const id of ids) {
-        const mini = buildMiniCard(id);
+        const mini = buildMiniCard(id) || buildMiniPlaceholder(id);
         if (mini) bucket.appendChild(mini);
       }
       // dnd events
       bucket.addEventListener("dragover", (e) => { e.preventDefault(); bucket.classList.add("drop-hover"); });
       bucket.addEventListener("dragleave", () => bucket.classList.remove("drop-hover"));
-      bucket.addEventListener("drop", (e) => {
+      bucket.addEventListener("drop", async (e) => {
         e.preventDefault(); bucket.classList.remove("drop-hover");
         const idStr = e.dataTransfer.getData("text/plain");
         const id = Number(idStr || "0"); if (!id) return;
         const c = document.getElementById(`comment-${id}`);
         const hasComment = !!(c && c.querySelector(".content") && c.querySelector(".content").textContent && c.querySelector(".content").textContent !== "Комментарий отсутствует");
-        // allow only posts with comments as per requirement
         if (!hasComment) return;
-        const current = loadTopicsFromStorage();
-        current[name] = current[name] || [];
-        if (!current[name].includes(id)) current[name].push(id);
-        saveTopicsToStorage(current);
-        const mini = buildMiniCard(id);
+        await apiAddToTopic(name, id);
+        const mini = buildMiniCard(id) || buildMiniPlaceholder(id);
         if (mini) bucket.appendChild(mini);
       });
       // remove topic
-      t.querySelector("button[data-rm]").addEventListener("click", () => {
-        const current = loadTopicsFromStorage();
-        delete current[name];
-        saveTopicsToStorage(current);
+      t.querySelector("button[data-rm]").addEventListener("click", async () => {
+        await apiDeleteTopic(name);
         renderTopicsSidebar();
       });
     });
     const addBtn = topicsEl.querySelector("#addTopicBtn");
     const inp = topicsEl.querySelector("#newTopic");
     if (addBtn && inp) {
-      const add = () => {
+      const add = async () => {
         const name = (inp.value || "").trim(); if (!name) return;
-        const current = loadTopicsFromStorage();
-        if (!current[name]) current[name] = [];
-        saveTopicsToStorage(current);
+        await apiCreateTopic(name);
         inp.value = ""; renderTopicsSidebar();
       };
       addBtn.addEventListener("click", add);
@@ -179,6 +208,12 @@
     const title = it.channel_title || it.channel_username || "Channel";
     const text = (it.text || "").split("\n")[0].slice(0, 140);
     el.innerHTML = `<div class="tx"><strong>${escapeHtml(title)}</strong>: ${escapeHtml(text)}</div>${cm ? `<div class="cm">${escapeHtml(cm.slice(0, 160))}</div>` : ""}`;
+    return el;
+  }
+  function buildMiniPlaceholder(id) {
+    const el = document.createElement("div");
+    el.className = "mini";
+    el.innerHTML = `<div class="tx"><strong>Post</strong> #${id}</div>`;
     return el;
   }
 

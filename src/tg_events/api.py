@@ -17,7 +17,7 @@ from telethon.utils import get_display_name
 from telethon.tl.types import Channel as TlChannel, User as TlUser
 from tg_events.ai.commenter import comment_message, get_prompt_template, set_prompt_template
 from sqlalchemy import delete, select
-from tg_events.models import AiComment, Channel, MessageRaw, Event
+from tg_events.models import AiComment, Channel, MessageRaw, Event, Topic, TopicItem
 
 
 settings = get_settings()
@@ -424,6 +424,101 @@ async def update_comment(req: UpdateCommentRequest) -> dict[str, int]:
             return {"updated": 1}
         await ses.commit()
         return {"updated": int(updated)}
+
+# Topics API
+class TopicOut(BaseModel):
+    id: int
+    name: str
+    message_ids: list[int]
+
+
+class TopicsResponse(BaseModel):
+    items: list[TopicOut]
+
+
+class TopicCreate(BaseModel):
+    name: str
+
+
+class TopicItemAdd(BaseModel):
+    topic_id: int
+    message_id: int
+
+
+@app.get("/miniapp/api/topics", response_model=TopicsResponse)
+async def list_topics(session: AsyncSession = Depends(get_session)) -> TopicsResponse:
+    q = select(Topic.id, Topic.name)
+    rows = (await session.execute(q)).all()
+    items: list[TopicOut] = []
+    if rows:
+        for tid, name in rows:
+            ids_q = select(TopicItem.message_id).where(TopicItem.topic_id == tid)
+            msg_ids = (await session.execute(ids_q)).scalars().all()
+            items.append(TopicOut(id=int(tid), name=name, message_ids=[int(x) for x in msg_ids]))
+    return TopicsResponse(items=items)
+
+
+@app.post("/miniapp/api/topics", response_model=TopicOut)
+async def create_topic(req: TopicCreate, session: AsyncSession = Depends(get_session)) -> TopicOut:
+    name = (req.name or "").strip()
+    if not name:
+        raise ValueError("name required")
+    # try find existing
+    row = (await session.execute(select(Topic).where(Topic.name == name))).scalar_one_or_none()
+    if row is None:
+        row = Topic(name=name)
+        session.add(row)
+        await session.commit()
+        await session.refresh(row)
+    # load items
+    ids = (await session.execute(select(TopicItem.message_id).where(TopicItem.topic_id == row.id))).scalars().all()
+    return TopicOut(id=int(row.id), name=row.name, message_ids=[int(x) for x in ids])
+
+
+@app.delete("/miniapp/api/topics/{topic_id}")
+async def delete_topic(topic_id: int, session: AsyncSession = Depends(get_session)) -> dict[str, int]:
+    res = await session.execute(delete(Topic).where(Topic.id == topic_id))
+    await session.commit()
+    return {"deleted": int(res.rowcount or 0)}
+
+
+@app.post("/miniapp/api/topics/add")
+async def add_topic_item(req: TopicItemAdd, session: AsyncSession = Depends(get_session)) -> dict[str, int]:
+    # ensure message exists
+    m = (await session.execute(select(MessageRaw.id).where(MessageRaw.id == req.message_id))).scalar_one_or_none()
+    if m is None:
+        return {"added": 0}
+    # check duplicate
+    exists = (
+        await session.execute(
+            select(TopicItem.id).where(
+                TopicItem.topic_id == req.topic_id,
+                TopicItem.message_id == req.message_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if exists is None:
+        session.add(TopicItem(topic_id=req.topic_id, message_id=req.message_id))
+        await session.commit()
+        return {"added": 1}
+    return {"added": 0}
+
+
+class TopicItemRemove(BaseModel):
+    topic_id: int
+    message_id: int
+
+
+@app.delete("/miniapp/api/topics/remove")
+async def remove_topic_item(req: TopicItemRemove, session: AsyncSession = Depends(get_session)) -> dict[str, int]:
+    res = await session.execute(
+        delete(TopicItem).where(
+            TopicItem.topic_id == req.topic_id,
+            TopicItem.message_id == req.message_id,
+        )
+    )
+    await session.commit()
+    return {"deleted": int(res.rowcount or 0)}
 
 # Serve static Mini App (mounted AFTER API routes so it doesn't shadow /miniapp/api/*)
 miniapp_dir = Path(__file__).parent / "miniapp_static"

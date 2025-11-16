@@ -22,6 +22,28 @@ class AiComment(TimestampMixin, Base):
     message: Mapped["MessageRaw"] = relationship()
 
 
+class Topic(TimestampMixin, Base):
+    __tablename__ = "topics"
+    __table_args__ = (UniqueConstraint("name", name="uq_topics_name"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+
+    items: Mapped[list["TopicItem"]] = relationship(back_populates="topic", cascade="all, delete-orphan")
+
+
+class TopicItem(TimestampMixin, Base):
+    __tablename__ = "topic_items"
+    __table_args__ = (UniqueConstraint("topic_id", "message_id", name="uq_topic_items_topic_message"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    topic_id: Mapped[int] = mapped_column(ForeignKey("topics.id", ondelete="CASCADE"), index=True)
+    message_id: Mapped[int] = mapped_column(ForeignKey("messages_raw.id", ondelete="CASCADE"), index=True)
+
+    topic: Mapped["Topic"] = relationship(back_populates="items")
+    message: Mapped["MessageRaw"] = relationship()
+
+
 class Channel(TimestampMixin, Base):
     __tablename__ = "channels"
 
