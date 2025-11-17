@@ -531,6 +531,7 @@
         const sourceLabel = fwdUsername || fwdSource || "";
         const userBadge = sourceLabel ? `<span class="badge user" style="${styleForUserTag(sourceLabel)}">${escapeHtml(sourceLabel)}</span>` : "";
         const fwdHtml = fwdSource ? `<div class="fwd"><span class="fwd-label">Forwarded from ${escapeHtml(fwdSource)}</span></div>` : "";
+        const delBtn = !asChild ? `<button class="action danger del" data-id="${it.id}">Delete</button>` : "";
         const textHtml = `
           <div class="meta">
             <div class="left">
@@ -541,6 +542,7 @@
               <span class="dt">${new Date(it.date).toLocaleString()}</span>
               ${link}
               ${userBadge}
+              ${delBtn}
             </div>
           </div>
           ${fwdHtml}
