@@ -26,6 +26,104 @@
   let topicsBoardListenerAttached = false;
   // topic name -> id index from server
   const topicIndex = new Map();
+  const topicMembership = new Map();
+
+  function rebuildTopicMembershipIndex(source) {
+    topicMembership.clear();
+    if (source && typeof source === "object") {
+      for (const [name, payload] of Object.entries(source)) {
+        // merge ids from resolved message_ids and from snapshots carrying legacy message_id
+        const mergedIds = [];
+        if (Array.isArray(payload?.ids)) mergedIds.push(...payload.ids);
+        if (Array.isArray(payload?.snapshots)) {
+          for (const snap of payload.snapshots) {
+            if (snap && typeof snap === "object" && snap.message_id != null) {
+              mergedIds.push(snap.message_id);
+            }
+          }
+        }
+        for (const rawId of mergedIds) {
+          const id = Number(rawId);
+          if (!Number.isFinite(id)) continue;
+          const bucket = topicMembership.get(id) || [];
+          if (!bucket.includes(name)) {
+            bucket.push(name);
+          }
+          topicMembership.set(id, bucket);
+        }
+      }
+    }
+    refreshAllVisibleTopicBadges();
+  }
+
+  function addTopicMembershipEntry(messageId, topicName) {
+    const id = Number(messageId);
+    if (!Number.isFinite(id) || !topicName) return;
+    const list = topicMembership.get(id) || [];
+    if (!list.includes(topicName)) {
+      list.push(topicName);
+      topicMembership.set(id, list);
+    }
+    refreshTopicBadgesForMessage(id);
+  }
+
+  function removeTopicMembershipEntry(messageId, topicName) {
+    const id = Number(messageId);
+    if (!Number.isFinite(id) || !topicName) return;
+    const list = topicMembership.get(id);
+    if (!list) return;
+    const next = list.filter((name) => name !== topicName);
+    if (next.length) {
+      topicMembership.set(id, next);
+    } else {
+      topicMembership.delete(id);
+    }
+    refreshTopicBadgesForMessage(id);
+  }
+
+  function removeTopicFromAllTopics(topicName) {
+    if (!topicName) return;
+    const affected = [];
+    topicMembership.forEach((names, id) => {
+      const idx = names.indexOf(topicName);
+      if (idx >= 0) {
+        names.splice(idx, 1);
+        if (!names.length) {
+          topicMembership.delete(id);
+        }
+        affected.push(id);
+      }
+    });
+    affected.forEach((id) => refreshTopicBadgesForMessage(id));
+  }
+
+  function hydrateTopicBadgeElement(el, messageId) {
+    const names = topicMembership.get(Number(messageId)) || [];
+    if (!names.length) {
+      el.innerHTML = "";
+      el.classList.add("hidden");
+      return;
+    }
+    el.innerHTML = names.map((name) => `<span class="badge topic">${escapeHtml(name)}</span>`).join("");
+    el.classList.remove("hidden");
+  }
+
+  function refreshTopicBadgesForMessage(messageId) {
+    const row = document.querySelector(`.row[data-id="${messageId}"]`);
+    if (!row) return;
+    const box = row.querySelector(".topic-tags");
+    if (box) hydrateTopicBadgeElement(box, messageId);
+  }
+
+  function refreshAllVisibleTopicBadges() {
+    const rows = document.querySelectorAll(".row[data-id]");
+    rows.forEach((row) => {
+      const id = Number(row.dataset.id);
+      if (!Number.isFinite(id)) return;
+      const box = row.querySelector(".topic-tags");
+      if (box) hydrateTopicBadgeElement(box, id);
+    });
+  }
 
   function sleep(ms) {
     return new Promise((r) => setTimeout(r, ms));
@@ -110,14 +208,20 @@
       for (const t of items) {
         const name = t.name || "";
         const id = t.id;
-        topicIndex.set(name, id);
+        if (name && id) topicIndex.set(name, id);
         out[name] = {
           ids: Array.isArray(t.message_ids) ? t.message_ids : [],
           snapshots: Array.isArray(t.items) ? t.items : [],
         };
       }
+      rebuildTopicMembershipIndex(out);
       return out;
-    } catch { return {}; }
+    } catch {
+      topicIndex.clear();
+      topicMembership.clear();
+      refreshAllVisibleTopicBadges();
+      return {};
+    }
   }
   async function apiCreateTopic(name) {
     const r = await fetch(`/miniapp/api/topics`, {
@@ -136,18 +240,19 @@
   }
   async function apiAddToTopic(name, messageId) {
     const id = topicIndex.get(name);
-    if (!id) return;
-    await fetch(`/miniapp/api/topics/add`, {
+    if (!id) return false;
+    const resp = await fetch(`/miniapp/api/topics/add`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ topic_id: id, message_id: messageId }),
     });
+    return resp.ok;
   }
 
-  async function renderTopicsSidebar() {
+  async function renderTopicsSidebar(preloadedData) {
     if (!topicsEl) return;
     topicsEl.classList.remove("hidden");
-    const data = await fetchTopicsFromServer();
+    const data = preloadedData || (await fetchTopicsFromServer());
     topicsEl.innerHTML = `
       <h3>Topics</h3>
       <div style="display:flex; gap:6px; margin-bottom:8px">
@@ -181,12 +286,13 @@
         const snap = snapByMessageId.get(id);
         const mini = buildMiniCard(id) || buildMiniPlaceholder(id);
         if (mini) {
-      const wrap = createTopicMiniWrap(mini, {
-        messageId: id,
-        msgId: snap?.msg_id ?? null,
-        channelTgId: snap?.channel_tg_id ?? null,
-        topicItemId: snap?.id ?? null,
-      });
+          const wrap = createTopicMiniWrap(mini, {
+            messageId: id,
+            msgId: snap?.msg_id ?? null,
+            channelTgId: snap?.channel_tg_id ?? null,
+            topicItemId: snap?.id ?? null,
+            topicName: name,
+          });
           bucket.appendChild(wrap);
         }
       }
@@ -207,6 +313,7 @@
         let stableChannel = null;
         let stableMsg = null;
         const idx = lastItems.findIndex((x) => x.id === id);
+        let addOk = false;
         if (idx >= 0) {
           const it = lastItems[idx];
           let extra = "";
@@ -223,7 +330,7 @@
           const sourceUrl = it.source_url || null;
           const channelUsername = it.channel_username || null;
           try {
-            await fetch(`/miniapp/api/topics/add`, {
+            const resp = await fetch(`/miniapp/api/topics/add`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
@@ -237,10 +344,15 @@
                 source_url: sourceUrl,
               }),
             });
-          } catch {}
+            addOk = resp.ok;
+          } catch {
+            addOk = false;
+          }
         } else {
-          await apiAddToTopic(name, id);
+          addOk = await apiAddToTopic(name, id);
         }
+        if (!addOk) return;
+        addTopicMembershipEntry(id, name);
         const mini = buildMiniCard(id) || buildMiniPlaceholder(id);
         if (mini) {
           const wrap = createTopicMiniWrap(mini, {
@@ -248,6 +360,7 @@
             msgId: stableMsg,
             channelTgId: stableChannel,
             topicItemId: null,
+            topicName: name,
           });
           bucket.appendChild(wrap);
         }
@@ -264,7 +377,7 @@
           let channelTgId = target.dataset.channelTgId ? Number(target.dataset.channelTgId) : null;
           let msgId = target.dataset.msgId ? Number(target.dataset.msgId) : null;
           try {
-            await fetch(`/miniapp/api/topics/remove`, {
+            const resp = await fetch(`/miniapp/api/topics/remove`, {
               method: "DELETE",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
@@ -275,8 +388,10 @@
                 topic_item_id: topicItemId,
               }),
             });
+            if (!resp.ok) return;
             const wrap = target.closest(".mini-wrap");
             if (wrap) wrap.remove();
+            removeTopicMembershipEntry(id, name);
             // notify other parts (e.g., Topics board) to refresh
             window.dispatchEvent(new CustomEvent("topics:changed"));
           } catch {}
@@ -285,7 +400,8 @@
       // remove topic
       t.querySelector("button[data-rm]").addEventListener("click", async () => {
         await apiDeleteTopic(name);
-        renderTopicsSidebar();
+        removeTopicFromAllTopics(name);
+        await renderTopicsSidebar();
       });
     });
     const addBtn = topicsEl.querySelector("#addTopicBtn");
@@ -294,11 +410,13 @@
       const add = async () => {
         const name = (inp.value || "").trim(); if (!name) return;
         await apiCreateTopic(name);
-        inp.value = ""; renderTopicsSidebar();
+        inp.value = "";
+        await renderTopicsSidebar();
       };
       addBtn.addEventListener("click", add);
       inp.addEventListener("keydown", (e) => { if (e.key === "Enter") add(); });
     }
+    return data;
   }
   function buildMiniCard(id) {
     // find in lastItems
@@ -319,25 +437,26 @@
     el.innerHTML = `<div class="tx"><strong>Post</strong> #${id}</div>`;
     return el;
   }
-function createTopicMiniWrap(miniEl, options) {
-  const wrap = document.createElement("div");
-  wrap.className = "mini-wrap";
-  wrap.dataset.id = String(options.messageId);
-  if (options.msgId != null) wrap.dataset.msgId = String(options.msgId);
-  if (options.channelTgId != null) wrap.dataset.channelTgId = String(options.channelTgId);
-  if (options.topicItemId != null) wrap.dataset.topicItemId = String(options.topicItemId);
-  wrap.appendChild(miniEl);
-  const btn = document.createElement("button");
-  btn.className = "mini-rm";
-  btn.textContent = "×";
-  btn.title = "Remove from topic";
-  btn.dataset.id = String(options.messageId);
-  if (options.msgId != null) btn.dataset.msgId = String(options.msgId);
-  if (options.channelTgId != null) btn.dataset.channelTgId = String(options.channelTgId);
-  if (options.topicItemId != null) btn.dataset.topicItemId = String(options.topicItemId);
-  wrap.appendChild(btn);
-  return wrap;
-}
+  function createTopicMiniWrap(miniEl, options) {
+    const wrap = document.createElement("div");
+    wrap.className = "mini-wrap";
+    wrap.dataset.id = String(options.messageId);
+    if (options.msgId != null) wrap.dataset.msgId = String(options.msgId);
+    if (options.channelTgId != null) wrap.dataset.channelTgId = String(options.channelTgId);
+    if (options.topicItemId != null) wrap.dataset.topicItemId = String(options.topicItemId);
+    wrap.appendChild(miniEl);
+    const btn = document.createElement("button");
+    btn.className = "mini-rm";
+    btn.textContent = "×";
+    btn.title = "Remove from topic";
+    btn.dataset.id = String(options.messageId);
+    if (options.msgId != null) btn.dataset.msgId = String(options.msgId);
+    if (options.channelTgId != null) btn.dataset.channelTgId = String(options.channelTgId);
+    if (options.topicItemId != null) btn.dataset.topicItemId = String(options.topicItemId);
+    if (options.topicName) btn.dataset.topicName = options.topicName;
+    wrap.appendChild(btn);
+    return wrap;
+  }
 
   async function load() {
     if (pickerEl) pickerEl.classList.add("hidden");
@@ -348,8 +467,10 @@ function createTopicMiniWrap(miniEl, options) {
     const data = await res.json();
     const items = data.items || [];
     lastItems = items;
+    const topicsData = await fetchTopicsFromServer();
     if (!items.length) {
       listEl.innerHTML = "<p>No posts.</p>";
+      await renderTopicsSidebar(topicsData);
       return;
     }
     listEl.innerHTML = "";
@@ -425,6 +546,20 @@ function createTopicMiniWrap(miniEl, options) {
           ${fwdHtml}
           <div class="text">${escapeHtml((it.text || "").slice(0, 800)).replace(/\\n/g, "<br/>")}</div>`;
         card.innerHTML = textHtml;
+        if (!asChild) {
+          const topicBadgeBox = document.createElement("div");
+          topicBadgeBox.className = "topic-tags hidden";
+          topicBadgeBox.dataset.messageId = String(it.id);
+          hydrateTopicBadgeElement(topicBadgeBox, it.id);
+          // place badges inline in meta, right after number and channel name
+          const leftMeta = card.querySelector(".meta .left");
+          if (leftMeta) {
+            leftMeta.appendChild(topicBadgeBox);
+          } else {
+            // fallback (should not happen)
+            card.appendChild(topicBadgeBox);
+          }
+        }
         // media
         if (Array.isArray(it.media) && it.media.length) {
           const gallery = document.createElement("div");
@@ -492,7 +627,7 @@ function createTopicMiniWrap(miniEl, options) {
       }
     }
     scheduleAutoRefresh();
-    renderTopicsSidebar();
+    await renderTopicsSidebar(topicsData);
   }
 
   function renderPicker(items) {

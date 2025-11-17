@@ -368,6 +368,10 @@ main .card, .comment-card {
   align-items: center;
   gap: 10px;
 }
+/* Align left meta content by text baseline so badges sit on same line */
+.meta .left {
+  align-items: baseline;
+}
 .card .meta .ch {
   font-weight: 600;
   color: var(--fg);
@@ -399,10 +403,33 @@ main .card, .comment-card {
   font-size: 12px;
   line-height: 1;
 }
+.badge.topic {
+  margin-left: 0;
+  background: rgba(255, 255, 255, 0.08);
+  border-color: var(--border-strong, var(--border));
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
 .badge.user {
   /* Colors are set inline per-username; keep defaults for fallback */
   border-color: #22c55e33;
   color: #22c55e;
+}
+.topic-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0 0;
+}
+.meta .left .topic-tags {
+  margin: 0; /* inline next to channel name */
+  align-items: baseline;
+}
+.meta .left .topic-tags .badge {
+  vertical-align: baseline;
+}
+.topic-tags.hidden {
+  display: none;
 }
 .card .text {
   white-space: normal;
