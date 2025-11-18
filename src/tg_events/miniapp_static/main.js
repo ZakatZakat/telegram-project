@@ -616,8 +616,9 @@
           cc.className = "comment-card";
           cc.id = `comment-${it.id}`;
           const heading = title ? `<span class="num">${String(displayIndex + 1)}.</span> Comment: ${escapeHtml(title)}` : `<span class="num">${String(displayIndex + 1)}.</span> Comment`;
-          const content = it.ai_comment ? escapeHtml(it.ai_comment) : "Комментарий отсутствует";
-          cc.innerHTML = `<div class="title">${heading} <button class="action fix-comment" data-id="${it.id}">Fix</button> <button class="action del-comment" data-id="${it.id}">Delete</button></div><div class="content">${content}</div>`;
+          const isEmptyComment = !(it.ai_comment && String(it.ai_comment).trim().length > 0);
+          const content = isEmptyComment ? "Комментарий отсутствует" : escapeHtml(it.ai_comment);
+          cc.innerHTML = `<div class="title">${heading} <button class="action fix-comment" data-id="${it.id}">Fix</button> <button class="action del-comment" data-id="${it.id}">Delete</button></div><div class="content${isEmptyComment ? " empty" : ""}">${content}</div>`;
           row.appendChild(cc);
         }
         return row;
@@ -1031,7 +1032,7 @@
         if (el) {
           const titleEl = el.querySelector(".title");
           const contentEl = el.querySelector(".content");
-          if (contentEl) contentEl.textContent = "Комментарий отсутствует";
+          if (contentEl) { contentEl.textContent = "Комментарий отсутствует"; contentEl.classList.add("empty"); }
           // also reset in lastItems
           for (const it of lastItems) {
             if (it.id === id) {
