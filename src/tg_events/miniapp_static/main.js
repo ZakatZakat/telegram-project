@@ -16,6 +16,37 @@
   const genStatus = document.getElementById("genStatus");
   const modelSelect = document.getElementById("modelSelect");
   // Drag is always available via small handle; no global toggle
+  const dedupeToggle = document.getElementById("dedupeToggle");
+  let dedupeEnabled = false;
+
+  function normalizeFirstLine(s) {
+    if (!s) return "";
+    return s.split("\n")[0].trim().toLowerCase().replace(/\s+/g, " ");
+  }
+  function extractPrimaryUrl(s) {
+    if (!s) return null;
+    const m = s.match(/https?:\/\/\S+/i);
+    if (!m) return null;
+    // strip trailing punctuation
+    return m[0].replace(/[),.;!?]+$/, "").toLowerCase();
+  }
+  function makeDedupeKey(item) {
+    const t = item && item.text ? String(item.text) : "";
+    const url = extractPrimaryUrl(t);
+    if (url) return `url:${url}`;
+    const line = normalizeFirstLine(t);
+    return line ? `line:${line}` : null;
+  }
+  function setDedupe(on) {
+    dedupeEnabled = !!on;
+    if (dedupeToggle) dedupeToggle.textContent = dedupeEnabled ? "Dedup On" : "Dedup Off";
+    try { localStorage.setItem("dedupeEnabled", dedupeEnabled ? "1" : "0"); } catch {}
+  }
+  try { dedupeEnabled = localStorage.getItem("dedupeEnabled") === "1"; } catch {}
+  if (dedupeToggle) {
+    dedupeToggle.addEventListener("click", () => { setDedupe(!dedupeEnabled); load(); });
+    setDedupe(dedupeEnabled);
+  }
   const clearBtn = document.getElementById("clearBtn");
   const deletePostsBtn = document.getElementById("deletePostsBtn");
   const pickerEl = document.getElementById("picker");
@@ -479,10 +510,19 @@
     }
     listEl.innerHTML = "";
     const rendered = new Set();
+    const seenKeys = new Set();
     for (let i = 0; i < items.length; i++) {
       if (rendered.has(i)) continue;
       const curr = items[i];
       const isUp = typeof curr.text === "string" && curr.text.trim().startsWith("👆");
+      // Deduplicate by URL/first line for main posts only
+      if (!isUp && dedupeEnabled) {
+        const k = makeDedupeKey(curr);
+        if (k && seenKeys.has(k)) {
+          continue;
+        }
+        if (k) seenKeys.add(k);
+      }
       // Make draggable
       // Do not allow dragging child rows themselves; drag the main card only
       const dragAllowed = !isUp;
