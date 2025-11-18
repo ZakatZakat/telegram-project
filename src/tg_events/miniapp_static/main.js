@@ -508,20 +508,11 @@
         const row = document.createElement("div");
         row.className = asChild ? "row child" : "row";
         if (!asChild) {
-          row.setAttribute("draggable", "true");
           row.dataset.id = String(it.id);
-          row.addEventListener("dragstart", (e) => {
-            e.dataTransfer.setData("text/plain", String(it.id));
-          });
         }
         const card = document.createElement("article");
         card.className = "card";
-        if (!asChild) {
-          card.setAttribute("draggable", "true");
-          card.addEventListener("dragstart", (e) => {
-            e.dataTransfer.setData("text/plain", String(it.id));
-          });
-        }
+        // Do not set draggable on the whole card to allow text selection/copy
         const title = it.channel_title || it.channel_username || "Channel";
         const link = it.source_url ? `<a href="${it.source_url}" target="_blank">Open</a>` : "";
         const fwdSource = (() => {
@@ -551,6 +542,16 @@
           ${fwdHtml}
           <div class="text">${escapeHtml((it.text || "").slice(0, 800)).replace(/\\n/g, "<br/>")}</div>`;
         card.innerHTML = textHtml;
+        // Drag handle: allow dragging via number only
+        if (!asChild) {
+          const handle = card.querySelector(".meta .left .num");
+          if (handle) {
+            handle.setAttribute("draggable", "true");
+            handle.addEventListener("dragstart", (e) => {
+              e.dataTransfer.setData("text/plain", String(it.id));
+            });
+          }
+        }
         if (!asChild) {
           const topicBadgeBox = document.createElement("div");
           topicBadgeBox.className = "topic-tags hidden";

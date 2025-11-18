@@ -75,6 +75,9 @@ html, body {
   color: #fecaca;
   border-radius: 12px;
   padding: 12px;
+  max-height: calc(100vh - 16px);
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
 }
 #topics h3 {
   margin: 0 0 8px;
@@ -383,6 +386,12 @@ main .card, .comment-card {
   margin-right: 8px;
   color: var(--muted);
   font-weight: 700;
+}
+.meta .left .num[draggable="true"] {
+  cursor: grab;
+}
+.card .text, .comment-card .content {
+  user-select: text;
 }
 .card .fwd {
   margin: 4px 0 8px;
