@@ -26,6 +26,7 @@ async def list_recent_messages(
     channel_username: Optional[str] = None,
     channel_tg_id: Optional[int] = None,
     fwd_username: Optional[str] = None,
+    model: Optional[str] = None,
 ) -> List[MiniappPost]:
     settings = get_settings()
     stmt: Select[Any] = select(
@@ -43,7 +44,7 @@ async def list_recent_messages(
         AiComment,
         and_(
             AiComment.message_id == MessageRaw.id,
-            AiComment.model == settings.ai_model,
+            AiComment.model == (model or settings.ai_model),
         ),
         isouter=True,
     ).order_by(desc(MessageRaw.date)).limit(limit)
