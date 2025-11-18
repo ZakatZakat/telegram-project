@@ -193,7 +193,7 @@
             const el = document.getElementById(`comment-${id}`);
             if (el) {
               const t = it.channel_title || it.channel_username || "Channel";
-              el.innerHTML = `<div class="title">Comment: ${escapeHtml(t)}</div><div class="content">${escapeHtml(it.ai_comment)}</div>`;
+              el.innerHTML = `<div class="title">Comment: ${escapeHtml(t)} <button class="action fix-comment" data-id="${it.id}">Fix</button> <button class="action del-comment" data-id="${it.id}">Delete</button></div><div class="content">${escapeHtml(it.ai_comment)}</div>`;
             }
           }
         }

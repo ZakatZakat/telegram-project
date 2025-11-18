@@ -142,7 +142,7 @@ def generate_comment_sync(text: str, *, model: Optional[str] = None, max_chars: 
             model=m,
             input=prompt,
             instructions="Summarize and briefly comment in 1-2 sentences. No emojis, no hashtags.",
-            max_output_tokens=200,
+            max_output_tokens=400,
             reasoning={"effort": "low"},
         )
         # diagnostics about shape for debugging empties
@@ -177,7 +177,7 @@ def generate_comment_sync(text: str, *, model: Optional[str] = None, max_chars: 
                 {"role": "user", "content": prompt},
             ],
             "temperature": 0.2,
-            "max_tokens": 200,
+            "max_tokens": 400,
         }
         resp = client.chat.completions.create(**params)
         choice0 = resp.choices[0] if getattr(resp, "choices", None) else None
@@ -198,7 +198,12 @@ def generate_comment_sync(text: str, *, model: Optional[str] = None, max_chars: 
         int(not bool(out)),
         _preview(out, 240),
     )
-    return _truncate_text(out, max_chars)
+    # Enforce global project limit (config-driven) to avoid UI truncation surprises
+    try:
+        limit = int(getattr(get_settings(), "ai_comment_max_chars", max_chars))
+    except Exception:
+        limit = max_chars
+    return _truncate_text(out, limit)
 
 
 async def comment_message(session: AsyncSession, message_id: int, *, model: Optional[str] = None) -> AiComment:
