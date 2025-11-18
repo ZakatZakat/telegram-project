@@ -98,6 +98,20 @@
       topicMembership.set(id, list);
     }
     refreshTopicBadgesForMessage(id);
+    // If "No topic" filter is active, remove the post from the current list immediately
+    const topicSel = document.getElementById("topicFilter");
+    const selected = topicSel && "value" in topicSel ? (topicSel.value || "") : "";
+    if (selected === "__none__") {
+      const row = document.querySelector(`.row[data-id="${id}"]`);
+      if (row) {
+        const sibling = row.nextElementSibling;
+        row.remove();
+        if (sibling && sibling.classList && sibling.classList.contains("row") && sibling.classList.contains("child")) {
+          sibling.remove();
+        }
+        renumberRows();
+      }
+    }
   }
 
   function removeTopicMembershipEntry(messageId, topicName) {
@@ -500,9 +514,19 @@
     listEl.innerHTML = "Loading...";
     const res = await fetch(`/miniapp/api/posts?${buildParams().toString()}`);
     const data = await res.json();
-    const items = data.items || [];
+    let items = data.items || [];
     lastItems = items;
     const topicsData = await fetchTopicsFromServer();
+    // Apply client-side topic filter if selected in Tools
+    const topicSel = document.getElementById("topicFilter");
+    const selectedTopic = topicSel && "value" in topicSel ? (topicSel.value || "") : "";
+    if (selectedTopic) {
+      items = items.filter((x) => {
+        const names = topicMembership.get(Number(x.id)) || [];
+        if (selectedTopic === "__none__") return names.length === 0;
+        return names.includes(selectedTopic);
+      });
+    }
     if (!items.length) {
       listEl.innerHTML = "<p>No posts.</p>";
       await renderTopicsSidebar(topicsData);
@@ -698,6 +722,9 @@
           <select id="fwdSelect" style="flex:1; min-width:240px; padding:8px 10px; border:1px solid var(--border); border-radius:8px; background:var(--card); color: var(--fg);">
             <option value="">All forwards</option>
           </select>
+          <select id="topicFilter" style="flex:1; min-width:220px; padding:8px 10px; border:1px solid var(--border); border-radius:8px; background:var(--card); color: var(--fg);">
+            <option value="">All topics</option>
+          </select>
           <button id="clearFwdFilter" class="action">Clear</button>
           <button id="editPromptBtn" class="action">Edit prompt</button>
         </div>
@@ -740,6 +767,7 @@
     }
     const clearBtnF = document.getElementById("clearFwdFilter");
     const fwdSel = document.getElementById("fwdSelect");
+    const topicSel = document.getElementById("topicFilter");
     const stopBtn = document.getElementById("stopGenBtn");
     const editPromptBtn = document.getElementById("editPromptBtn");
     const modal = document.getElementById("promptModal");
@@ -776,6 +804,23 @@
         if (fwdSel) {
           fwdSel.innerHTML = `<option value="">All forwards</option>`;
         }
+      }
+    }
+
+    async function loadTopicsOptions() {
+      try {
+        const r = await fetch(`/miniapp/api/topics`);
+        const d = await r.json();
+        const items = Array.isArray(d.items) ? d.items : [];
+        if (topicSel) {
+          topicSel.innerHTML =
+            `<option value="">All topics</option>` +
+            `<option value="__none__">No topic</option>` +
+            items.map((t) => `<option value="${t.name}">${t.name}</option>`).join("");
+        }
+      } catch (err) {
+        console.error("loadTopicsOptions failed", err);
+        if (topicSel) topicSel.innerHTML = `<option value="">All topics</option>`;
       }
     }
 
@@ -845,16 +890,19 @@
     }
 
     loadForwardSenders().catch(()=>{});
+    loadTopicsOptions().catch(()=>{});
     loadTopicsBoard().catch(()=>{});
     if (!topicsBoardListenerAttached) {
       window.addEventListener("topics:changed", () => {
         loadTopicsBoard().catch(()=>{});
+        loadTopicsOptions().catch(()=>{});
       });
       topicsBoardListenerAttached = true;
     }
 
-    clearBtnF && clearBtnF.addEventListener("click", () => { if (fwdSel && "value" in fwdSel) fwdSel.value = ""; pickerEl.classList.add("hidden"); listEl.classList.remove("hidden"); if (boardEl) { boardEl.classList.add("hidden"); boardEl.style.display = "none"; } load(); });
+    clearBtnF && clearBtnF.addEventListener("click", () => { if (fwdSel && "value" in fwdSel) fwdSel.value = ""; if (topicSel && "value" in topicSel) topicSel.value = ""; pickerEl.classList.add("hidden"); listEl.classList.remove("hidden"); if (boardEl) { boardEl.classList.add("hidden"); boardEl.style.display = "none"; } load(); });
     if (fwdSel) fwdSel.addEventListener("change", () => { pickerEl.classList.add("hidden"); listEl.classList.remove("hidden"); if (boardEl) { boardEl.classList.add("hidden"); boardEl.style.display = "none"; } load(); });
+    if (topicSel) topicSel.addEventListener("change", () => { pickerEl.classList.add("hidden"); listEl.classList.remove("hidden"); if (boardEl) { boardEl.classList.add("hidden"); boardEl.style.display = "none"; } load(); });
 
     if (editPromptBtn && modal && promptText && promptCancel && promptSave) {
       editPromptBtn.addEventListener("click", async () => {
@@ -1054,7 +1102,13 @@
           return;
         }
         const row = t.closest(".row");
-        if (row) row.remove();
+        if (row) {
+          const sibling = row.nextElementSibling;
+          row.remove();
+          if (sibling && sibling.classList && sibling.classList.contains("row") && sibling.classList.contains("child")) {
+            sibling.remove();
+          }
+        }
         // remove from lastItems and renumber
         lastItems = lastItems.filter((x) => x.id !== id);
         renumberRows();
