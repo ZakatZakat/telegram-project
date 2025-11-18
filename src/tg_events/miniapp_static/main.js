@@ -15,6 +15,7 @@
   const genCount = document.getElementById("genCount");
   const genStatus = document.getElementById("genStatus");
   const modelSelect = document.getElementById("modelSelect");
+  // Drag is always available via small handle; no global toggle
   const clearBtn = document.getElementById("clearBtn");
   const deletePostsBtn = document.getElementById("deletePostsBtn");
   const pickerEl = document.getElementById("picker");
@@ -542,14 +543,19 @@
           ${fwdHtml}
           <div class="text">${escapeHtml((it.text || "").slice(0, 800)).replace(/\\n/g, "<br/>")}</div>`;
         card.innerHTML = textHtml;
-        // Drag handle: allow dragging via number only
+        // Dedicated drag handle (does not interfere with text selection)
         if (!asChild) {
-          const handle = card.querySelector(".meta .left .num");
-          if (handle) {
+          const leftMeta = card.querySelector(".meta .left");
+          if (leftMeta) {
+            const handle = document.createElement("span");
+            handle.className = "handle";
+            handle.title = "Drag to topic";
+            handle.textContent = "⋮⋮";
             handle.setAttribute("draggable", "true");
             handle.addEventListener("dragstart", (e) => {
               e.dataTransfer.setData("text/plain", String(it.id));
             });
+            leftMeta.appendChild(handle);
           }
         }
         if (!asChild) {
@@ -890,6 +896,7 @@
   }
 
   reloadBtn.addEventListener("click", load);
+  // no drag toggle
   if (genBtn) {
     genBtn.addEventListener("click", async () => {
       // Build list of main items and overrides (prepend child text if exists)

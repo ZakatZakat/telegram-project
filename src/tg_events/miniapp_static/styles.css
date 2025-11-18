@@ -393,8 +393,22 @@ main .card, .comment-card {
   color: var(--muted);
   font-weight: 700;
 }
-.meta .left .num[draggable="true"] {
+.meta .left[draggable="true"], .meta .left .num[draggable="true"] {
   cursor: grab;
+}
+.handle {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 0 6px;
+  line-height: 18px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--muted);
+  user-select: none;
+  cursor: grab;
+}
+.handle:hover {
+  border-color: #6b7280;
 }
 .card .text, .comment-card .content {
   user-select: text;
