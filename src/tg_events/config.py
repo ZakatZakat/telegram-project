@@ -21,7 +21,8 @@ class Settings(BaseSettings):
     media_root: str = "media"
     # AI / OpenAI
     openai_api_key: str | None = None  # from env: OPENAI_API_KEY
-    ai_model: str = "gpt-4o-mini"
+    ai_model: str = "gpt-5-nano"
+    ai_fallback_model: str = "gpt-4o-mini"
     ai_timeout_s: int = 20
     ai_max_concurrency: int = 4
     ai_comment_max_chars: int = 2000

@@ -14,6 +14,7 @@
   const genBtn = document.getElementById("genBtn");
   const genCount = document.getElementById("genCount");
   const genStatus = document.getElementById("genStatus");
+  const modelSelect = document.getElementById("modelSelect");
   const clearBtn = document.getElementById("clearBtn");
   const deletePostsBtn = document.getElementById("deletePostsBtn");
   const pickerEl = document.getElementById("picker");
@@ -158,6 +159,8 @@
     const fwdEl = document.getElementById("fwdSelect") || document.getElementById("fwdFilter");
     const fwd = fwdEl && "value" in fwdEl ? (fwdEl.value || "") : "";
     if (fwd) params.set("fwd_username", fwd.startsWith("@") ? fwd.slice(1) : fwd);
+    const mdl = modelSelect && modelSelect.value ? modelSelect.value.trim() : "";
+    if (mdl) params.set("model", mdl);
     params.set("limit", "500");
     return params;
   }
@@ -902,7 +905,8 @@
           }
           // always generate for main posts (even if ai_comment exists), skipping only 👆 items
           const combined = extra ? `${it.text || ""}\n\n${extra}` : (it.text || "");
-          overrides.push({ message_id: it.id, text: combined });
+          const mdl = modelSelect && modelSelect.value ? modelSelect.value.trim() : "";
+          overrides.push({ message_id: it.id, text: combined, model: mdl || undefined });
         }
       }
       if (!overrides.length) return;
@@ -917,10 +921,11 @@
       const stopBtn = document.getElementById("stopGenBtn");
       if (stopBtn) { stopBtn.disabled = false; stopBtn.classList.remove("hidden"); }
       try {
+        const mdl = modelSelect && modelSelect.value ? modelSelect.value.trim() : "";
         await fetch(`/miniapp/api/comments/generate_override`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ items: overrides }),
+          body: JSON.stringify({ items: overrides, model: mdl || undefined }),
         });
       } catch {}
       // Polling same as before

@@ -61,9 +61,15 @@ async def miniapp_posts(
     username: Optional[str] = None,
     channel_id: Optional[int] = None,
     fwd_username: Optional[str] = None,
+    model: Optional[str] = None,
 ) -> MiniappPostsResponse:
     items = await list_recent_messages(
-        session, limit=limit, channel_username=username, channel_tg_id=channel_id, fwd_username=fwd_username
+        session,
+        limit=limit,
+        channel_username=username,
+        channel_tg_id=channel_id,
+        fwd_username=fwd_username,
+        model=model,
     )
     return MiniappPostsResponse(items=items)
 class ForwardsResponse(BaseModel):
@@ -206,6 +212,7 @@ async def generate_comments(req: GenerateCommentsRequest) -> dict[str, int]:
             rows = (await ses.execute(q)).scalars().all()
             ids = list(dict.fromkeys(rows))
 
+    logger.warning("comments.generate:schedule", extra={"requested": len(req.message_ids or []), "resolved_ids": len(ids)})
     async def _run() -> None:
         global cancel_generation
         # Sequential processing with ~1s delay between items
@@ -213,11 +220,13 @@ async def generate_comments(req: GenerateCommentsRequest) -> dict[str, int]:
         cancel_generation = False
         for mid in ids:
             if cancel_generation:
-                logger.info("generation cancelled by user")
+                logger.warning("generation cancelled by user")
                 break
             async with SessionLocal() as ses:
                 try:
+                    logger.warning("comments.generate:item:start", extra={"message_id": mid})
                     await comment_message(ses, mid, model=req.model or s.ai_model)
+                    logger.warning("comments.generate:item:done", extra={"message_id": mid})
                 except Exception as e:
                     logger.exception("generate_comment failed", extra={"message_id": mid, "error": str(e)})
             await asyncio.sleep(1.0)
@@ -257,6 +266,7 @@ class GenerateOverrideItem(BaseModel):
 
 class GenerateOverrideRequest(BaseModel):
     items: List[GenerateOverrideItem]
+    model: Optional[str] = None
 
 
 @app.post("/miniapp/api/comments/generate_override")
@@ -275,6 +285,7 @@ async def generate_comments_override(req: GenerateOverrideRequest) -> dict[str, 
         pass
     cancel_generation = False
 
+    logger.warning("comments.generate_override:schedule", extra={"requested": len(req.items or [])})
     async def _run_override() -> None:
         from sqlalchemy import update as sa_update
         from tg_events.models import AiComment
@@ -283,14 +294,17 @@ async def generate_comments_override(req: GenerateOverrideRequest) -> dict[str, 
                 break
             text = (it.text or "").strip()
             if not text:
+                logger.warning("comments.generate_override:skip_empty", extra={"message_id": it.message_id})
                 continue
             # run sync generator in executor
             loop = asyncio.get_running_loop()
             from tg_events.ai.commenter import generate_comment_sync
 
             try:
+                mdl = it.model or req.model or s.ai_model
+                logger.warning("comments.generate_override:item:start", extra={"message_id": it.message_id, "model": mdl})
                 comment = await loop.run_in_executor(
-                    None, lambda: generate_comment_sync(text, model=it.model or s.ai_model)
+                    None, lambda: generate_comment_sync(text, model=mdl)
                 )
                 async with SessionLocal() as ses:
                     # upsert: try update, if 0 rows affected → insert
@@ -298,18 +312,19 @@ async def generate_comments_override(req: GenerateOverrideRequest) -> dict[str, 
                         sa_update(AiComment)
                         .where(
                             AiComment.message_id == it.message_id,
-                            AiComment.model == (it.model or s.ai_model),
+                            AiComment.model == mdl,
                         )
                         .values(comment_text=comment)
                     )
                     if (res.rowcount or 0) == 0:
                         rec = AiComment(
                             message_id=it.message_id,
-                            model=(it.model or s.ai_model),
+                            model=mdl,
                             comment_text=comment,
                         )
                         ses.add(rec)
                     await ses.commit()
+                logger.warning("comments.generate_override:item:stored", extra={"message_id": it.message_id, "chars": len(comment or "")})
             except Exception as e:
                 logger.exception("generate_override failed", extra={"message_id": it.message_id, "error": str(e)})
             await asyncio.sleep(0)  # yield control
