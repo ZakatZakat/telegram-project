@@ -734,7 +734,7 @@
       boardEl.innerHTML = `
       <div class="tile compact" id="topicsBoard">
         <div class="title"><span>Topics board</span></div>
-        <div id="topicsBoardInner" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap:10px;"></div>
+        <div id="topicsBoardInner" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(560px, 1fr)); gap:10px;"></div>
       </div>`;
       boardEl.classList.remove("hidden");
       boardEl.style.display = "";
@@ -833,21 +833,25 @@
       for (const t of items) {
         const col = document.createElement("div");
         col.className = "card topic-card";
+        // color accent per topic
+        const hue = hashToHue(t.name || "");
+        col.style.setProperty("--h", String(hue));
         const head = document.createElement("div");
         head.className = "topic-title";
-        head.textContent = t.name;
+        const topicItems = Array.isArray(t.items) ? t.items : [];
+        head.innerHTML = `<span class="tname">${escapeHtml(t.name || "")}</span><span class="count">${topicItems.length}</span>`;
         col.appendChild(head);
         const bucket = document.createElement("div");
         bucket.className = "mini-grid";
-        for (const it of (t.items || [])) {
+        const MAX_VISIBLE = 6;
+        function buildMini(it) {
           const mini = document.createElement("div");
           mini.className = "mini";
           const postFull = (it.post_text || "");
           const shortText = postFull.length > 220 ? (postFull.slice(0, 220) + "…") : postFull;
           const shortHtml = escapeHtml(shortText).replace(/\n/g, "<br/>");
           const cmHtml = (it.comment_text && String(it.comment_text).trim().length > 0) ? escapeHtml(it.comment_text).replace(/\n/g, "<br/>") : "Комментарий отсутствует";
-          mini.innerHTML = `<div class=\"tx\" style=\"font-size:12px\">${shortHtml}</div><div class=\"cm\" style=\"font-size:11px;color:var(--muted)\">${cmHtml}</div>`;
-          // store snapshot
+          mini.innerHTML = `<div class=\"tx\">${shortHtml}</div><div class=\"cm\">${cmHtml}</div>`;
           mini.dataset.snapshot = JSON.stringify({
             channel_tg_id: it.channel_tg_id || null,
             msg_id: it.msg_id || null,
@@ -881,7 +885,32 @@
             actions.appendChild(btn);
             mini.appendChild(actions);
           }
-          bucket.appendChild(mini);
+          return mini;
+        }
+        const visible = topicItems.slice(0, MAX_VISIBLE);
+        const hidden = topicItems.slice(MAX_VISIBLE);
+        for (const it of visible) bucket.appendChild(buildMini(it));
+        if (hidden.length > 0) {
+          const collapsed = document.createElement("div");
+          collapsed.className = "mini-collapsed";
+          const dots = document.createElement("div");
+          dots.className = "mini-dots";
+          const dotCount = Math.min(hidden.length, 40);
+          for (let i = 0; i < dotCount; i++) {
+            const d = document.createElement("span");
+            d.className = "dot";
+            dots.appendChild(d);
+          }
+          const more = document.createElement("button");
+          more.className = "action sm show-more";
+          more.textContent = `Show more (${hidden.length})`;
+          more.addEventListener("click", () => {
+            hidden.forEach((it) => bucket.appendChild(buildMini(it)));
+            collapsed.remove();
+          });
+          collapsed.appendChild(dots);
+          collapsed.appendChild(more);
+          bucket.appendChild(collapsed);
         }
         col.appendChild(bucket);
         inner.appendChild(col);
