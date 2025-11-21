@@ -847,44 +847,48 @@
         function buildMini(it) {
           const mini = document.createElement("div");
           mini.className = "mini";
-          const postFull = (it.post_text || "");
-          const shortText = postFull.length > 220 ? (postFull.slice(0, 220) + "…") : postFull;
+          const fullServer = String(it.post_text || "");
+          // Prefer server-provided child comment if available
+          let childText = it.parent_comment_text ? String(it.parent_comment_text) : null;
+          let mainText = fullServer;
+          if (!childText) {
+            // Try split by trailing block starting with 👆 after 1-2 newlines
+            const tailMatch = fullServer.match(/(?:\r?\n){1,2}\s*👆[\s\S]*$/);
+            if (tailMatch) {
+              const splitAt = fullServer.length - tailMatch[0].length;
+              mainText = fullServer.slice(0, splitAt).trimEnd();
+              childText = fullServer.slice(splitAt).trimStart();
+            } else {
+              // Fallback: last occurrence of 👆; split at preceding newline(s) if any
+              const pos = fullServer.lastIndexOf("👆");
+              if (pos >= 0) {
+                const before = fullServer.slice(0, pos);
+                const nl = before.match(/([\r\n]+)\s*$/);
+                const start = nl ? pos - nl[1].length : pos;
+                mainText = fullServer.slice(0, start).trimEnd();
+                childText = fullServer.slice(start).trimStart();
+              }
+            }
+          }
+          const shortText = mainText.length > 140 ? (mainText.slice(0, 140) + "…") : mainText;
           const shortHtml = escapeHtml(shortText).replace(/\n/g, "<br/>");
-          const cmHtml = (it.comment_text && String(it.comment_text).trim().length > 0) ? escapeHtml(it.comment_text).replace(/\n/g, "<br/>") : "Комментарий отсутствует";
-          mini.innerHTML = `<div class=\"tx\">${shortHtml}</div><div class=\"cm\">${cmHtml}</div>`;
+          const hasChild = !!(childText && String(childText).trim().length > 0);
+          mini.innerHTML = `<div class="tx">${shortHtml}</div>${hasChild ? `<div class="meta"><span class="chip ok">Есть комментарий</span></div>` : ``}`;
           mini.dataset.snapshot = JSON.stringify({
             channel_tg_id: it.channel_tg_id || null,
             msg_id: it.msg_id || null,
-            post_text: it.post_text || "",
+            post_text: mainText || "",
             comment_text: it.comment_text || null,
             channel_username: it.channel_username || null,
             source_url: it.source_url || null,
+            parent_comment_text: childText || null,
           });
-          if (postFull.length > 220) {
-            mini.dataset.fullPost = postFull;
-            mini.dataset.shortPost = shortText;
-            const actions = document.createElement("div");
-            actions.className = "mini-actions";
-            const btn = document.createElement("button");
-            btn.className = "action sm toggle";
-            btn.textContent = "Expand";
-            btn.addEventListener("click", (e) => {
-              e.stopPropagation();
-              const tx = mini.querySelector(".tx");
-              const expanded = mini.classList.toggle("expanded");
-              if (tx) {
-                if (expanded) {
-                  tx.innerHTML = escapeHtml(mini.dataset.fullPost || "").replace(/\n/g, "<br/>");
-                  btn.textContent = "Collapse";
-                } else {
-                  tx.innerHTML = escapeHtml(mini.dataset.shortPost || "").replace(/\n/g, "<br/>");
-                  btn.textContent = "Expand";
-                }
-              }
-            });
-            actions.appendChild(btn);
-            mini.appendChild(actions);
-          }
+          mini.addEventListener("click", () => {
+            try {
+              const snap = JSON.parse(mini.dataset.snapshot || "{}");
+              openPostModal(snap);
+            } catch {}
+          });
           return mini;
         }
         const visible = topicItems.slice(0, MAX_VISIBLE);
@@ -1010,6 +1014,61 @@
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;")
       .replace(/'/g, "&#039;");
+  }
+
+  // Post preview modal
+  function ensurePostModal() {
+    let modal = document.getElementById("postModal");
+    if (!modal) {
+      document.body.insertAdjacentHTML("beforeend", `
+      <div id="postModal" class="modal">
+        <div class="panel post-view">
+          <h3>Post details</h3>
+          <div class="pv-meta"></div>
+          <div class="pv-section">
+            <div class="pv-label">Post</div>
+            <div class="pv-box pv-post"></div>
+          </div>
+          <div class="pv-section pv-comment-wrap hidden">
+            <div class="pv-label">Комментарий</div>
+            <div class="pv-box pv-comment"></div>
+          </div>
+          <div class="pv-section pv-parent-wrap hidden">
+            <div class="pv-label">Дочерний комментарий</div>
+            <div class="pv-box pv-parent"></div>
+          </div>
+          <div class="actions">
+            <button id="postClose" class="action">Close</button>
+          </div>
+        </div>
+      </div>`);
+      modal = document.getElementById("postModal");
+      const closeBtn = modal.querySelector("#postClose");
+      if (closeBtn) closeBtn.addEventListener("click", () => { modal.style.display = "none"; });
+      modal.addEventListener("click", (e) => { if (e.target === modal) modal.style.display = "none"; });
+      document.addEventListener("keydown", (e) => { if (e.key === "Escape") modal.style.display = "none"; });
+    }
+    return modal;
+  }
+  function openPostModal(snapshot) {
+    const modal = ensurePostModal();
+    const meta = modal.querySelector(".pv-meta");
+    const postBox = modal.querySelector(".pv-post");
+    const cmWrap = modal.querySelector(".pv-comment-wrap");
+    const cmBox = modal.querySelector(".pv-comment");
+    const parentWrap = modal.querySelector(".pv-parent-wrap");
+    const parentBox = modal.querySelector(".pv-parent");
+    const channel = snapshot.channel_username ? `@${snapshot.channel_username}` : (snapshot.channel_tg_id ? `#${snapshot.channel_tg_id}` : "Channel");
+    const link = snapshot.source_url ? `<a href="${snapshot.source_url}" target="_blank">Open source</a>` : "";
+    if (meta) meta.innerHTML = `<div style="margin-bottom:8px;color:var(--muted)">${escapeHtml(channel)} ${link ? " • " + link : ""}</div>`;
+    if (postBox) postBox.innerHTML = escapeHtml(snapshot.post_text || "").replace(/\n/g, "<br/>");
+    const hasCm = snapshot.comment_text && String(snapshot.comment_text).trim().length > 0;
+    if (cmWrap) cmWrap.classList.toggle("hidden", !hasCm);
+    if (hasCm && cmBox) cmBox.innerHTML = escapeHtml(snapshot.comment_text || "").replace(/\n/g, "<br/>");
+    const hasParent = snapshot.parent_comment_text && String(snapshot.parent_comment_text).trim().length > 0;
+    if (parentWrap) parentWrap.classList.toggle("hidden", !hasParent);
+    if (hasParent && parentBox) parentBox.innerHTML = escapeHtml(snapshot.parent_comment_text || "").replace(/\n/g, "<br/>");
+    modal.style.display = "flex";
   }
 
   reloadBtn.addEventListener("click", load);

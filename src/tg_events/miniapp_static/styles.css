@@ -246,8 +246,32 @@ html, body {
   font-size: 11px;
   transition: transform .08s ease, border-color .12s ease, box-shadow .12s ease;
   box-shadow: 0 1px 1px rgba(0,0,0,0.15);
+  height: 140px;
+  display: flex;
+  flex-direction: column;
 }
 #topicsBoard .mini .cm { font-size: 10px; }
+#topicsBoard .mini .tx {
+  flex: 1;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+}
+#topicsBoard .mini .meta { margin-top: 6px; }
+.chip {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 10px;
+  color: var(--muted);
+}
+.chip.ok {
+  border-color: #22c55e55;
+  background: #22c55e1a;
+  color: #22c55e;
+}
 #topicsBoard .mini:hover { transform: translateY(-1px); border-color: #6b728033; box-shadow: 0 2px 6px rgba(0,0,0,0.2); }
 @media (max-width: 1200px) { #topicsBoard .mini-grid { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 700px) { #topicsBoard .mini-grid { grid-template-columns: 1fr; } }
@@ -311,6 +335,15 @@ html, body {
 }
 .modal .panel h3 {
   margin: 0 0 8px;
+}
+.post-view .pv-section { margin-top: 10px; }
+.post-view .pv-label { color: var(--muted); font-weight: 600; margin-bottom: 4px; }
+.post-view .pv-box {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  padding: 10px;
+  white-space: pre-wrap;
 }
 .modal .panel textarea {
   width: 100%;
